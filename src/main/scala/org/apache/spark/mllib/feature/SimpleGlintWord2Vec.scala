@@ -69,7 +69,7 @@ private case class VocabWord(
   * Distributed Representations of Words and Phrases and their Compositionality.
   */
 @Since("1.1.0")
-class Word2Vec extends Serializable with Logging {
+class SimpleGlintWord2Vec extends Serializable with Logging {
 
   private var vectorSize = 100
   private var learningRate = 0.025
@@ -301,10 +301,10 @@ class Word2Vec extends Serializable with Logging {
     * Computes the vector representation of each word in vocabulary.
     * @param dataset an RDD of sentences,
     *                each sentence is expressed as an iterable collection of words
-    * @return a Word2VecModel
+    * @return a SimpleGlintWord2VecModel
     */
   @Since("1.1.0")
-  def fit[S <: Iterable[String]](dataset: RDD[S]): Word2VecModel = {
+  def fit[S <: Iterable[String]](dataset: RDD[S]): SimpleGlintWord2VecModel = {
 
     learnVocab(dataset)
 
@@ -345,7 +345,7 @@ class Word2Vec extends Serializable with Logging {
     val initRandom = new XORShiftRandom(seed)
 
     if (vocabSize.toLong * vectorSize >= Int.MaxValue) {
-      throw new RuntimeException("Please increase minCount or decrease vectorSize in Word2Vec" +
+      throw new RuntimeException("Please increase minCount or decrease vectorSize in SimpleGlintWord2Vec" +
         " to avoid an OOM. You are highly recommended to make your vocabSize*vectorSize, " +
         "which is " + vocabSize + "*" + vectorSize + " for now, less than `Int.MaxValue`.")
     }
@@ -456,22 +456,22 @@ class Word2Vec extends Serializable with Logging {
     newSentences.unpersist()
 
     val wordArray = vocab.map(_.word)
-    new Word2VecModel(wordArray.zipWithIndex.toMap, syn0Global)
+    new SimpleGlintWord2VecModel(wordArray.zipWithIndex.toMap, syn0Global)
   }
 
   /**
     * Computes the vector representation of each word in vocabulary (Java version).
     * @param dataset a JavaRDD of words
-    * @return a Word2VecModel
+    * @return a SimpleGlintWord2VecModel
     */
   @Since("1.1.0")
-  def fit[S <: JavaIterable[String]](dataset: JavaRDD[S]): Word2VecModel = {
+  def fit[S <: JavaIterable[String]](dataset: JavaRDD[S]): SimpleGlintWord2VecModel = {
     fit(dataset.rdd.map(_.asScala))
   }
 }
 
 /**
-  * Word2Vec model
+  * SimpleGlintWord2Vec model
   * @param wordIndex maps each word to an index, which can retrieve the corresponding
   *                  vector from wordVectors
   * @param wordVectors array of length numWords * vectorSize, vector corresponding
@@ -479,7 +479,7 @@ class Word2Vec extends Serializable with Logging {
   *                    (i * vectorSize, i * vectorSize + vectorSize)
   */
 @Since("1.1.0")
-class Word2VecModel private[spark] (
+class SimpleGlintWord2VecModel private[spark](
                                      private[spark] val wordIndex: Map[String, Int],
                                      private[spark] val wordVectors: Array[Float]) extends Serializable with Saveable {
 
@@ -508,14 +508,14 @@ class Word2VecModel private[spark] (
 
   @Since("1.5.0")
   def this(model: Map[String, Array[Float]]) = {
-    this(Word2VecModel.buildWordIndex(model), Word2VecModel.buildWordVectors(model))
+    this(SimpleGlintWord2VecModel.buildWordIndex(model), SimpleGlintWord2VecModel.buildWordVectors(model))
   }
 
   override protected def formatVersion = "1.0"
 
   @Since("1.4.0")
   def save(sc: SparkContext, path: String): Unit = {
-    Word2VecModel.SaveLoadV1_0.save(sc, path, getVectors)
+    SimpleGlintWord2VecModel.SaveLoadV1_0.save(sc, path, getVectors)
   }
 
   /**
@@ -630,7 +630,7 @@ class Word2VecModel private[spark] (
 }
 
 @Since("1.4.0")
-object Word2VecModel extends Loader[Word2VecModel] {
+object SimpleGlintWord2VecModel extends Loader[SimpleGlintWord2VecModel] {
 
   private def buildWordIndex(model: Map[String, Array[Float]]): Map[String, Int] = {
     model.keys.zipWithIndex.toMap
@@ -653,11 +653,11 @@ object Word2VecModel extends Loader[Word2VecModel] {
 
     val formatVersionV1_0 = "1.0"
 
-    val classNameV1_0 = "org.apache.spark.mllib.feature.Word2VecModel"
+    val classNameV1_0 = "org.apache.spark.mllib.feature.SimpleGlintWord2VecModel"
 
     case class Data(word: String, vector: Array[Float])
 
-    def load(sc: SparkContext, path: String): Word2VecModel = {
+    def load(sc: SparkContext, path: String): SimpleGlintWord2VecModel = {
       val spark = SparkSession.builder().sparkContext(sc).getOrCreate()
       val dataFrame = spark.read.parquet(Loader.dataPath(path))
       // Check schema explicitly since erasure makes it hard to use match-case for checking.
@@ -665,7 +665,7 @@ object Word2VecModel extends Loader[Word2VecModel] {
 
       val dataArray = dataFrame.select("word", "vector").collect()
       val word2VecMap = dataArray.map(i => (i.getString(0), i.getSeq[Float](1).toArray)).toMap
-      new Word2VecModel(word2VecMap)
+      new SimpleGlintWord2VecModel(word2VecMap)
     }
 
     def save(sc: SparkContext, path: String, model: Map[String, Array[Float]]): Unit = {
@@ -694,7 +694,7 @@ object Word2VecModel extends Loader[Word2VecModel] {
   }
 
   @Since("1.4.0")
-  override def load(sc: SparkContext, path: String): Word2VecModel = {
+  override def load(sc: SparkContext, path: String): SimpleGlintWord2VecModel = {
 
     val (loadedClassName, loadedVersion, metadata) = Loader.loadMetadata(sc, path)
     implicit val formats = DefaultFormats
@@ -707,13 +707,13 @@ object Word2VecModel extends Loader[Word2VecModel] {
         val vectorSize = model.getVectors.values.head.length
         val numWords = model.getVectors.size
         require(expectedVectorSize == vectorSize,
-          s"Word2VecModel requires each word to be mapped to a vector of size " +
+          s"SimpleGlintWord2VecModel requires each word to be mapped to a vector of size " +
             s"$expectedVectorSize, got vector of size $vectorSize")
         require(expectedNumWords == numWords,
-          s"Word2VecModel requires $expectedNumWords words, but got $numWords")
+          s"SimpleGlintWord2VecModel requires $expectedNumWords words, but got $numWords")
         model
       case _ => throw new Exception(
-        s"Word2VecModel.load did not recognize model with (className, format version):" +
+        s"SimpleGlintWord2VecModel.load did not recognize model with (className, format version):" +
           s"($loadedClassName, $loadedVersion).  Supported:\n" +
           s"  ($classNameV1_0, 1.0)")
     }
