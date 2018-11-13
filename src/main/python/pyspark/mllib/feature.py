@@ -35,11 +35,11 @@ from pyspark.mllib.feature import JavaVectorTransformer
 from pyspark.mllib.linalg import _convert_to_vector
 from pyspark.mllib.util import JavaLoader, JavaSaveable
 
-__all__ = ['Word2Vec', 'Word2VecModel']
+__all__ = ['SimpleGlintWord2Vec', 'SimpleGlintWord2VecModel']
 
 
 
-class Word2VecModel(JavaVectorTransformer, JavaSaveable, JavaLoader):
+class SimpleGlintWord2VecModel(JavaVectorTransformer, JavaSaveable, JavaLoader):
     """
     class for Word2Vec model
     .. versionadded:: 1.2.0
@@ -85,13 +85,13 @@ class Word2VecModel(JavaVectorTransformer, JavaSaveable, JavaLoader):
         Load a model from the given path.
         """
         jmodel = sc._jvm.org.apache.spark.mllib.feature \
-            .Word2VecModel.load(sc._jsc.sc(), path)
-        model = sc._jvm.org.apache.spark.mllib.api.python.Word2VecModelWrapper(jmodel)
-        return Word2VecModel(model)
+            .SimpleGlintWord2VecModel.load(sc._jsc.sc(), path)
+        model = sc._jvm.org.apache.spark.mllib.api.python.SimpleGlintWord2VecModelWrapper(jmodel)
+        return SimpleGlintWord2VecModel(model)
 
 
 @ignore_unicode_prefix
-class Word2Vec(object):
+class SimpleGlintWord2Vec(object):
     """Word2Vec creates vector representation of words in a text corpus.
     The algorithm first constructs a vocabulary from the corpus
     and then learns vector representation of words in the vocabulary.
@@ -220,5 +220,5 @@ class Word2Vec(object):
                                float(self.learningRate), int(self.numPartitions),
                                int(self.numIterations), self.seed,
                                int(self.minCount), int(self.windowSize))
-        return Word2VecModel(jmodel)
+        return SimpleGlintWord2VecModel(jmodel)
 

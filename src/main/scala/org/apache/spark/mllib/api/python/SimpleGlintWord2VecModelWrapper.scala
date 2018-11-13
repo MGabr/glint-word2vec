@@ -23,13 +23,13 @@ import scala.collection.JavaConverters._
 
 import org.apache.spark.SparkContext
 import org.apache.spark.api.java.JavaRDD
-import org.apache.spark.mllib.feature.Word2VecModel
+import org.apache.spark.mllib.feature.SimpleGlintWord2VecModel
 import org.apache.spark.mllib.linalg.{Vector, Vectors}
 
 /**
   * Wrapper around Word2VecModel to provide helper methods in Python
   */
-private[python] class Word2VecModelWrapper(model: Word2VecModel) {
+private[python] class SimpleGlintWord2VecModelWrapper(model: SimpleGlintWord2VecModel) {
   def transform(word: String): Vector = {
     model.transform(word)
   }
