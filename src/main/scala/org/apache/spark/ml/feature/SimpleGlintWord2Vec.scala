@@ -35,7 +35,7 @@ import org.apache.spark.util.{Utils, VersionUtils}
 /**
   * Params for [[Word2Vec]] and [[Word2VecModel]].
   */
-private[feature] trait Word2VecBase extends Params
+private[feature] trait SimpleGlintWord2VecBase extends Params
   with HasInputCol with HasOutputCol with HasMaxIter with HasStepSize with HasSeed {
 
   /**
@@ -119,13 +119,13 @@ private[feature] trait Word2VecBase extends Params
 }
 
 /**
-  * Word2Vec trains a model of `Map(String, Vector)`, i.e. transforms a word into a code for further
+  * SimpleGlintWord2Vec trains a model of `Map(String, Vector)`, i.e. transforms a word into a code for further
   * natural language processing or machine learning process.
   */
 @Since("1.4.0")
-final class Word2Vec @Since("1.4.0") (
+final class SimpleGlintWord2Vec @Since("1.4.0") (
                                        @Since("1.4.0") override val uid: String)
-  extends Estimator[Word2VecModel] with Word2VecBase with DefaultParamsWritable {
+  extends Estimator[SimpleGlintWord2VecModel] with SimpleGlintWord2VecBase with DefaultParamsWritable {
 
   @Since("1.4.0")
   def this() = this(Identifiable.randomUID("w2v"))
@@ -171,10 +171,10 @@ final class Word2Vec @Since("1.4.0") (
   def setMaxSentenceLength(value: Int): this.type = set(maxSentenceLength, value)
 
   @Since("2.0.0")
-  override def fit(dataset: Dataset[_]): Word2VecModel = {
+  override def fit(dataset: Dataset[_]): SimpleGlintWord2VecModel = {
     transformSchema(dataset.schema, logging = true)
     val input = dataset.select($(inputCol)).rdd.map(_.getAs[Seq[String]](0))
-    val wordVectors = new feature.Word2Vec()
+    val wordVectors = new feature.SimpleGlintWord2Vec()
       .setLearningRate($(stepSize))
       .setMinCount($(minCount))
       .setNumIterations($(maxIter))
@@ -184,7 +184,7 @@ final class Word2Vec @Since("1.4.0") (
       .setWindowSize($(windowSize))
       .setMaxSentenceLength($(maxSentenceLength))
       .fit(input)
-    copyValues(new Word2VecModel(uid, wordVectors).setParent(this))
+    copyValues(new SimpleGlintWord2VecModel(uid, wordVectors).setParent(this))
   }
 
   @Since("1.4.0")
@@ -193,26 +193,26 @@ final class Word2Vec @Since("1.4.0") (
   }
 
   @Since("1.4.1")
-  override def copy(extra: ParamMap): Word2Vec = defaultCopy(extra)
+  override def copy(extra: ParamMap): SimpleGlintWord2Vec = defaultCopy(extra)
 }
 
 @Since("1.6.0")
-object Word2Vec extends DefaultParamsReadable[Word2Vec] {
+object SimpleGlintWord2Vec extends DefaultParamsReadable[SimpleGlintWord2Vec] {
 
   @Since("1.6.0")
-  override def load(path: String): Word2Vec = super.load(path)
+  override def load(path: String): SimpleGlintWord2Vec = super.load(path)
 }
 
 /**
-  * Model fitted by [[Word2Vec]].
+  * Model fitted by [[SimpleGlintWord2Vec]].
   */
 @Since("1.4.0")
-class Word2VecModel private[ml] (
+class SimpleGlintWord2VecModel private[ml] (
                                   @Since("1.4.0") override val uid: String,
-                                  @transient private val wordVectors: feature.Word2VecModel)
-  extends Model[Word2VecModel] with Word2VecBase with MLWritable {
+                                  @transient private val wordVectors: feature.SimpleGlintWord2VecModel)
+  extends Model[SimpleGlintWord2VecModel] with SimpleGlintWord2VecBase with MLWritable {
 
-  import Word2VecModel._
+  import SimpleGlintWord2VecModel._
 
   /**
     * Returns a dataframe with two fields, "word" and "vector", with "word" being a String and
@@ -316,22 +316,22 @@ class Word2VecModel private[ml] (
   }
 
   @Since("1.4.1")
-  override def copy(extra: ParamMap): Word2VecModel = {
-    val copied = new Word2VecModel(uid, wordVectors)
+  override def copy(extra: ParamMap): SimpleGlintWord2VecModel = {
+    val copied = new SimpleGlintWord2VecModel(uid, wordVectors)
     copyValues(copied, extra).setParent(parent)
   }
 
   @Since("1.6.0")
-  override def write: MLWriter = new Word2VecModelWriter(this)
+  override def write: MLWriter = new SimpleGlintWord2VecModelWriter(this)
 }
 
 @Since("1.6.0")
-object Word2VecModel extends MLReadable[Word2VecModel] {
+object SimpleGlintWord2VecModel extends MLReadable[SimpleGlintWord2VecModel] {
 
   private case class Data(word: String, vector: Array[Float])
 
-  private[Word2VecModel]
-  class Word2VecModelWriter(instance: Word2VecModel) extends MLWriter {
+  private[SimpleGlintWord2VecModel]
+  class SimpleGlintWord2VecModelWriter(instance: SimpleGlintWord2VecModel) extends MLWriter {
 
     override protected def saveImpl(path: String): Unit = {
       DefaultParamsWriter.saveMetadata(instance, path, sc)
@@ -340,7 +340,7 @@ object Word2VecModel extends MLReadable[Word2VecModel] {
       val dataPath = new Path(path, "data").toString
       val bufferSizeInBytes = Utils.byteStringAsBytes(
         sc.conf.get("spark.kryoserializer.buffer.max", "64m"))
-      val numPartitions = Word2VecModelWriter.calculateNumberOfPartitions(
+      val numPartitions = SimpleGlintWord2VecModelWriter.calculateNumberOfPartitions(
         bufferSizeInBytes, instance.wordVectors.wordIndex.size, instance.getVectorSize)
       val spark = sparkSession
       import spark.implicits._
@@ -354,7 +354,7 @@ object Word2VecModel extends MLReadable[Word2VecModel] {
   }
 
   private[feature]
-  object Word2VecModelWriter {
+  object SimpleGlintWord2VecModelWriter {
     /**
       * Calculate the number of partitions to use in saving the model.
       * [SPARK-11994] - We want to partition the model in partitions smaller than
@@ -374,18 +374,18 @@ object Word2VecModel extends MLReadable[Word2VecModel] {
       // (floatSize * vectorSize + 15) * numWords
       val approximateSizeInBytes = (floatSize * vectorSize + averageWordSize) * numWords
       val numPartitions = (approximateSizeInBytes / bufferSizeInBytes) + 1
-      require(numPartitions < 10e8, s"Word2VecModel calculated that it needs $numPartitions " +
+      require(numPartitions < 10e8, s"SimpleGlintWord2VecModel calculated that it needs $numPartitions " +
         s"partitions to save this model, which is too large.  Try increasing " +
-        s"spark.kryoserializer.buffer.max so that Word2VecModel can use fewer partitions.")
+        s"spark.kryoserializer.buffer.max so that SimpleGlintWord2VecModel can use fewer partitions.")
       numPartitions.toInt
     }
   }
 
-  private class Word2VecModelReader extends MLReader[Word2VecModel] {
+  private class SimpleGlintWord2VecModelReader extends MLReader[SimpleGlintWord2VecModel] {
 
-    private val className = classOf[Word2VecModel].getName
+    private val className = classOf[SimpleGlintWord2VecModel].getName
 
-    override def load(path: String): Word2VecModel = {
+    override def load(path: String): SimpleGlintWord2VecModel = {
       val spark = sparkSession
       import spark.implicits._
 
@@ -400,25 +400,25 @@ object Word2VecModel extends MLReadable[Word2VecModel] {
           .head()
         val wordIndex = data.getAs[Map[String, Int]](0)
         val wordVectors = data.getAs[Seq[Float]](1).toArray
-        new feature.Word2VecModel(wordIndex, wordVectors)
+        new feature.SimpleGlintWord2VecModel(wordIndex, wordVectors)
       } else {
         val wordVectorsMap = spark.read.parquet(dataPath).as[Data]
           .collect()
           .map(wordVector => (wordVector.word, wordVector.vector))
           .toMap
-        new feature.Word2VecModel(wordVectorsMap)
+        new feature.SimpleGlintWord2VecModel(wordVectorsMap)
       }
 
-      val model = new Word2VecModel(metadata.uid, oldModel)
+      val model = new SimpleGlintWord2VecModel(metadata.uid, oldModel)
       DefaultParamsReader.getAndSetParams(model, metadata)
       model
     }
   }
 
   @Since("1.6.0")
-  override def read: MLReader[Word2VecModel] = new Word2VecModelReader
+  override def read: MLReader[SimpleGlintWord2VecModel] = new SimpleGlintWord2VecModelReader
 
   @Since("1.6.0")
-  override def load(path: String): Word2VecModel = super.load(path)
+  override def load(path: String): SimpleGlintWord2VecModel = super.load(path)
 }
 
