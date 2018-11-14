@@ -27,20 +27,20 @@ from pyspark.ml.util import JavaMLReadable, JavaMLWritable
 from pyspark.ml.wrapper import JavaEstimator, JavaModel
 from pyspark.ml.common import inherit_doc
 
-__all__ = ['Word2Vec', 'Word2VecModel']
+__all__ = ['SimpleGlintWord2Vec', 'SimpleGlintWord2VecModel']
 
 
 
 @inherit_doc
 @ignore_unicode_prefix
-class Word2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, HasInputCol, HasOutputCol,
+class SimpleGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, HasInputCol, HasOutputCol,
                JavaMLReadable, JavaMLWritable):
     """
-    Word2Vec trains a model of `Map(String, Vector)`, i.e. transforms a word into a code for further
+    SimpleGlintWord2Vec trains a model of `Map(String, Vector)`, i.e. transforms a word into a code for further
     natural language processing or machine learning process.
     >>> sent = ("a b " * 100 + "a c " * 10).split(" ")
     >>> doc = spark.createDataFrame([(sent,), (sent,)], ["sentence"])
-    >>> word2Vec = Word2Vec(vectorSize=5, seed=42, inputCol="sentence", outputCol="model")
+    >>> word2Vec = SimpleGlintWord2Vec(vectorSize=5, seed=42, inputCol="sentence", outputCol="model")
     >>> model = word2Vec.fit(doc)
     >>> model.getVectors().show()
     +----+--------------------+
@@ -66,7 +66,7 @@ class Word2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, HasInputCol, Has
     DenseVector([0.5524, -0.4995, -0.3599, 0.0241, 0.3461])
     >>> word2vecPath = temp_path + "/word2vec"
     >>> word2Vec.save(word2vecPath)
-    >>> loadedWord2Vec = Word2Vec.load(word2vecPath)
+    >>> loadedWord2Vec = SimpleGlintWord2Vec.load(word2vecPath)
     >>> loadedWord2Vec.getVectorSize() == word2Vec.getVectorSize()
     True
     >>> loadedWord2Vec.getNumPartitions() == word2Vec.getNumPartitions()
@@ -75,7 +75,7 @@ class Word2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, HasInputCol, Has
     True
     >>> modelPath = temp_path + "/word2vec-model"
     >>> model.save(modelPath)
-    >>> loadedModel = Word2VecModel.load(modelPath)
+    >>> loadedModel = SimpleGlintWord2VecModel.load(modelPath)
     >>> loadedModel.getVectors().first().word == model.getVectors().first().word
     True
     >>> loadedModel.getVectors().first().vector == model.getVectors().first().vector
@@ -108,8 +108,8 @@ class Word2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, HasInputCol, Has
         __init__(self, vectorSize=100, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1, \
                  seed=None, inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000)
         """
-        super(Word2Vec, self).__init__()
-        self._java_obj = self._new_java_obj("org.apache.spark.ml.feature.Word2Vec", self.uid)
+        super(SimpleGlintWord2Vec, self).__init__()
+        self._java_obj = self._new_java_obj("org.apache.spark.ml.feature.SimpleGlintWord2Vec", self.uid)
         self._setDefault(vectorSize=100, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1,
                          windowSize=5, maxSentenceLength=1000)
         kwargs = self._input_kwargs
@@ -122,7 +122,7 @@ class Word2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, HasInputCol, Has
         """
         setParams(self, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1, seed=None, \
                  inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000)
-        Sets params for this Word2Vec.
+        Sets params for this SimpleGlintWord2Vec.
         """
         kwargs = self._input_kwargs
         return self._set(**kwargs)
@@ -198,12 +198,12 @@ class Word2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, HasInputCol, Has
         return self.getOrDefault(self.maxSentenceLength)
 
     def _create_model(self, java_model):
-        return Word2VecModel(java_model)
+        return SimpleGlintWord2VecModel(java_model)
 
 
-class Word2VecModel(JavaModel, JavaMLReadable, JavaMLWritable):
+class SimpleGlintWord2VecModel(JavaModel, JavaMLReadable, JavaMLWritable):
     """
-    Model fitted by :py:class:`Word2Vec`.
+    Model fitted by :py:class:`SimpleGlintWord2Vec`.
     .. versionadded:: 1.4.0
     """
 
