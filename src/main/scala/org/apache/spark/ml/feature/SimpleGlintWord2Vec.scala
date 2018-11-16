@@ -25,7 +25,7 @@ import org.apache.spark.ml.linalg.{BLAS, Vector, Vectors, VectorUDT}
 import org.apache.spark.ml.param._
 import org.apache.spark.ml.param.shared._
 import org.apache.spark.ml.util._
-import org.apache.spark.mllib.feature
+import org.apache.spark.mllib.feature.{SimpleGlintWord2Vec => MLlibSimpleGlintWord2Vec, SimpleGlintWord2VecModel => MLlibSimpleGlintWord2VecModel}
 import org.apache.spark.mllib.linalg.VectorImplicits._
 import org.apache.spark.sql.{DataFrame, Dataset, SparkSession}
 import org.apache.spark.sql.functions._
@@ -33,7 +33,7 @@ import org.apache.spark.sql.types._
 import org.apache.spark.util.{Utils, VersionUtils}
 
 /**
-  * Params for [[Word2Vec]] and [[Word2VecModel]].
+  * Params for [[SimpleGlintWord2Vec]] and [[SimpleGlintWord2VecModel]].
   */
 private[feature] trait SimpleGlintWord2VecBase extends Params
   with HasInputCol with HasOutputCol with HasMaxIter with HasStepSize with HasSeed {
@@ -174,7 +174,7 @@ final class SimpleGlintWord2Vec @Since("1.4.0") (
   override def fit(dataset: Dataset[_]): SimpleGlintWord2VecModel = {
     transformSchema(dataset.schema, logging = true)
     val input = dataset.select($(inputCol)).rdd.map(_.getAs[Seq[String]](0))
-    val wordVectors = new feature.SimpleGlintWord2Vec()
+    val wordVectors = new MLlibSimpleGlintWord2Vec()
       .setLearningRate($(stepSize))
       .setMinCount($(minCount))
       .setNumIterations($(maxIter))
@@ -209,7 +209,7 @@ object SimpleGlintWord2Vec extends DefaultParamsReadable[SimpleGlintWord2Vec] {
 @Since("1.4.0")
 class SimpleGlintWord2VecModel private[ml] (
                                   @Since("1.4.0") override val uid: String,
-                                  @transient private val wordVectors: feature.SimpleGlintWord2VecModel)
+                                  @transient private val wordVectors: MLlibSimpleGlintWord2VecModel)
   extends Model[SimpleGlintWord2VecModel] with SimpleGlintWord2VecBase with MLWritable {
 
   import SimpleGlintWord2VecModel._
@@ -400,13 +400,13 @@ object SimpleGlintWord2VecModel extends MLReadable[SimpleGlintWord2VecModel] {
           .head()
         val wordIndex = data.getAs[Map[String, Int]](0)
         val wordVectors = data.getAs[Seq[Float]](1).toArray
-        new feature.SimpleGlintWord2VecModel(wordIndex, wordVectors)
+        new MLlibSimpleGlintWord2VecModel(wordIndex, wordVectors)
       } else {
         val wordVectorsMap = spark.read.parquet(dataPath).as[Data]
           .collect()
           .map(wordVector => (wordVector.word, wordVector.vector))
           .toMap
-        new feature.SimpleGlintWord2VecModel(wordVectorsMap)
+        new MLlibSimpleGlintWord2VecModel(wordVectorsMap)
       }
 
       val model = new SimpleGlintWord2VecModel(metadata.uid, oldModel)

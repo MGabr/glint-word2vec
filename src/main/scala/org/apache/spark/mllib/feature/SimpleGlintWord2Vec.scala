@@ -22,12 +22,17 @@ import java.lang.{Iterable => JavaIterable}
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 
+import breeze.linalg.{Vector => BreezeVector}
 import com.github.fommil.netlib.BLAS.{getInstance => blas}
+import glint.Client
+import glint.models.client.BigMatrix
+import glint.models.client.granular.GranularBigMatrix
+import glint.models.client.retry.RetryBigMatrix
 import org.json4s.DefaultFormats
 import org.json4s.JsonDSL._
 import org.json4s.jackson.JsonMethods._
 
-import org.apache.spark.SparkContext
+import org.apache.spark.{SparkContext, TaskContext}
 import org.apache.spark.annotation.Since
 import org.apache.spark.api.java.JavaRDD
 import org.apache.spark.broadcast.Broadcast
@@ -39,6 +44,9 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.util.BoundedPriorityQueue
 import org.apache.spark.util.Utils
 import org.apache.spark.util.random.XORShiftRandom
+
+import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.concurrent.duration._
 
 /**
   *  Entry in vocabulary
@@ -78,6 +86,9 @@ class SimpleGlintWord2Vec extends Serializable with Logging {
   private var seed = Utils.random.nextLong()
   private var minCount = 5
   private var maxSentenceLength = 1000
+  @transient
+  private var client: Option[Client] = Option.empty
+  private var maxSimultaneousRequests = 10;
 
   /**
     * Sets the maximum length (in words) of each sentence in the input data.
@@ -166,6 +177,24 @@ class SimpleGlintWord2Vec extends Serializable with Logging {
     require(minCount >= 0,
       s"Minimum number of times must be nonnegative but got ${minCount}")
     this.minCount = minCount
+    this
+  }
+
+  /**
+    * Sets the glint client to use, otherwise glint is started and stopped automatically in spark
+    */
+  def setClient(client: Client): this.type = {
+    this.client = Option(client)
+    this
+  }
+
+  /**
+    * Sets the maximum number of simultaneous requests to glint parameter servers per executor (default: 10)
+    * A low value like the default might lead to limited CPU usage.
+    * A high value might lead to too many threads being created.
+    */
+  def setMaxSimultaneousRequests(maxSimultaneousRequests: Int): this.type = {
+    this.maxSimultaneousRequests = maxSimultaneousRequests
     this
   }
 
@@ -324,6 +353,14 @@ class SimpleGlintWord2Vec extends Serializable with Logging {
     }
   }
 
+  private def asGranularRetryBlocking(matrix: BigMatrix[Float])
+                                     (implicit ec: ExecutionContext): BlockingBigMatrix[Float] = {
+    // 262144, akka.remote.OversizedPayloadException
+    val granular = new GranularBigMatrix[Float](matrix, 10000)
+    val retry = new RetryBigMatrix[Float](granular)
+    new BlockingBigMatrix[Float](retry, maxSimultaneousRequests)
+  }
+
   private def doFit[S <: Iterable[String]](
                                             dataset: RDD[S], sc: SparkContext,
                                             expTable: Broadcast[Array[Float]],
@@ -350,23 +387,42 @@ class SimpleGlintWord2Vec extends Serializable with Logging {
         "which is " + vocabSize + "*" + vectorSize + " for now, less than `Int.MaxValue`.")
     }
 
-    val syn0Global =
-      Array.fill[Float](vocabSize * vectorSize)((initRandom.nextFloat() - 0.5f) / vectorSize)
-    val syn1Global = new Array[Float](vocabSize * vectorSize)
+    var spawnedClient = false
+    if (client.isEmpty) {
+      client = Option(Client.runOnSpark(sc, "127.0.0.1"))
+      spawnedClient = true
+    }
+
+    @transient
+    implicit val ec = ExecutionContext.Implicits.global
+
+    val syn0 = asGranularRetryBlocking(client.get.matrix[Float](vocabSize, vectorSize))
+    val syn1 = asGranularRetryBlocking(client.get.matrix[Float](vocabSize, vectorSize))
+
+    // initialize syn0 weights randomly
+    val colIndices = (0 until vectorSize).toArray
+    for (rowIndex <- 0L until vocabSize) {
+      val rowIndices = Array.fill[Long](vectorSize)(rowIndex)
+      val values = Array.fill[Float](vectorSize)((initRandom.nextFloat() - 0.5f) / vectorSize)
+      syn0.push(rowIndices, colIndices, values)
+    }
+
+    syn1.waitNoRequests()
+    syn0.waitNoRequests()
+
     val totalWordsCounts = numIterations * trainWordsCount + 1
     var alpha = learningRate
 
     for (k <- 1 to numIterations) {
-      val bcSyn0Global = sc.broadcast(syn0Global)
-      val bcSyn1Global = sc.broadcast(syn1Global)
       val numWordsProcessedInPreviousIterations = (k - 1) * trainWordsCount
 
-      val partial = newSentences.mapPartitionsWithIndex { case (idx, iter) =>
+      newSentences.foreachPartition { iter =>
+        implicit val ec = ExecutionContext.Implicits.global
+
+        val idx = TaskContext.getPartitionId()
         val random = new XORShiftRandom(seed ^ ((idx + 1) << 16) ^ ((-k - 1) << 8))
-        val syn0Modify = new Array[Int](vocabSize)
-        val syn1Modify = new Array[Int](vocabSize)
-        val model = iter.foldLeft((bcSyn0Global.value, bcSyn1Global.value, 0L, 0L)) {
-          case ((syn0, syn1, lastWordCount, wordCount), sentence) =>
+        val model = iter.foldLeft((0L, 0L)) {
+          case ((lastWordCount, wordCount), sentence) =>
             var lwc = lastWordCount
             var wc = wordCount
             if (wordCount - lastWordCount > 10000) {
@@ -378,6 +434,7 @@ class SimpleGlintWord2Vec extends Serializable with Logging {
               logInfo(s"wordCount = ${wordCount + numWordsProcessedInPreviousIterations}, " +
                 s"alpha = $alpha")
             }
+            logInfo(s"alpha = $alpha")
             wc += sentence.length
             var pos = 0
             while (pos < sentence.length) {
@@ -390,73 +447,76 @@ class SimpleGlintWord2Vec extends Serializable with Logging {
                   val c = pos - window + a
                   if (c >= 0 && c < sentence.length) {
                     val lastWord = sentence(c)
-                    val l1 = lastWord * vectorSize
-                    val neu1e = new Array[Float](vectorSize)
-                    // Hierarchical softmax
-                    var d = 0
-                    while (d < bcVocab.value(word).codeLen) {
-                      val inner = bcVocab.value(word).point(d)
-                      val l2 = inner * vectorSize
-                      // Propagate hidden -> output
-                      var f = blas.sdot(vectorSize, syn0, l1, 1, syn1, l2, 1)
-                      if (f > -MAX_EXP && f < MAX_EXP) {
-                        val ind = ((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2.0)).toInt
-                        f = expTable.value(ind)
-                        val g = ((1 - bcVocab.value(word).code(d) - f) * alpha).toFloat
-                        blas.saxpy(vectorSize, g, syn1, l2, 1, neu1e, 0, 1)
-                        blas.saxpy(vectorSize, g, syn0, l1, 1, syn1, l2, 1)
-                        syn1Modify(inner) += 1
+                    val l1 = lastWord
+
+                    Future.sequence(Iterator(syn0.pull(Array(l1)), syn1.pull(Array(l1)))).onSuccess { case l1Iter =>
+                      val syn0_l1 = l1Iter.next()(0)
+                      val syn1_l1 = l1Iter.next()(0)
+
+                      // Hierarchical softmax
+                      var neu1e_updates = Array[Future[BreezeVector[Float]]]()
+                      var d = 0
+                      while (d < bcVocab.value(word).codeLen) {
+                        val inner = bcVocab.value(word).point(d)
+                        val l2 = inner
+
+                        // Propagate hidden -> output
+                        neu1e_updates :+ Future.sequence(Iterator(syn0.pull(Array(l2)), syn1.pull(Array(l2)))).map { l2Iter =>
+                          val syn0_l2 = l2Iter.next()(0)
+                          val syn1_l2 = l2Iter.next()(0)
+
+                          var f = syn0_l1.dot(syn1_l2)
+                          if (f > -MAX_EXP && f < MAX_EXP) {
+                            val ind = ((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2.0)).toInt
+                            f = expTable.value(ind)
+                            val g = ((1 - bcVocab.value(word).code(d) - f) * alpha).toFloat
+                            val syn1_l2_update = g * syn0_l1
+
+                            val l2RowIndices = Array.fill[Long](vectorSize)(l2)
+                            syn1.push(l2RowIndices, colIndices, syn1_l2_update.toArray)
+
+                            g * syn1_l2
+                          } else {
+                            BreezeVector.zeros[Float](vectorSize)
+                          }
+                        }
+                        d += 1
                       }
-                      d += 1
+
+                      Future.sequence(neu1e_updates.toIterable).map(_.reduce(_ + _)).onSuccess { case syn0_l1_update =>
+
+                        val l1RowIndices = Array.fill[Long](vectorSize)(l1)
+                        syn0.push(l1RowIndices, colIndices, syn0_l1_update.toArray)
+                      }
                     }
-                    blas.saxpy(vectorSize, 1.0f, neu1e, 0, 1, syn0, l1, 1)
-                    syn0Modify(lastWord) += 1
                   }
                 }
                 a += 1
               }
               pos += 1
             }
-            (syn0, syn1, lwc, wc)
+            (lwc, wc)
         }
-        val syn0Local = model._1
-        val syn1Local = model._2
-        // Only output modified vectors.
-        Iterator.tabulate(vocabSize) { index =>
-          if (syn0Modify(index) > 0) {
-            Some((index, syn0Local.slice(index * vectorSize, (index + 1) * vectorSize)))
-          } else {
-            None
-          }
-        }.flatten ++ Iterator.tabulate(vocabSize) { index =>
-          if (syn1Modify(index) > 0) {
-            Some((index + vocabSize, syn1Local.slice(index * vectorSize, (index + 1) * vectorSize)))
-          } else {
-            None
-          }
-        }.flatten
+        syn1.waitNoRequests()
+        syn0.waitNoRequests()
       }
-      val synAgg = partial.reduceByKey { case (v1, v2) =>
-        blas.saxpy(vectorSize, 1.0f, v2, 1, v1, 1)
-        v1
-      }.collect()
-      var i = 0
-      while (i < synAgg.length) {
-        val index = synAgg(i)._1
-        if (index < vocabSize) {
-          Array.copy(synAgg(i)._2, 0, syn0Global, index * vectorSize, vectorSize)
-        } else {
-          Array.copy(synAgg(i)._2, 0, syn1Global, (index - vocabSize) * vectorSize, vectorSize)
-        }
-        i += 1
-      }
-      bcSyn0Global.destroy(false)
-      bcSyn1Global.destroy(false)
     }
+
+    // pull all word vectors
+    // this requires enough memory locally, but using a model based on a BigMatrix is currently not supported
+    val pulledWordVectors = Await.result(syn0.pull((0L until vocabSize).toArray).map(_.flatMap(v => v.toArray)), 1 minute)
+
+    syn1.destroy()
+    syn0.destroy()
     newSentences.unpersist()
 
+    if (spawnedClient) {
+      client.get.stop()
+      client = Option.empty
+    }
+
     val wordArray = vocab.map(_.word)
-    new SimpleGlintWord2VecModel(wordArray.zipWithIndex.toMap, syn0Global)
+    new SimpleGlintWord2VecModel(wordArray.zipWithIndex.toMap, pulledWordVectors)
   }
 
   /**
@@ -480,8 +540,8 @@ class SimpleGlintWord2Vec extends Serializable with Logging {
   */
 @Since("1.1.0")
 class SimpleGlintWord2VecModel private[spark](
-                                     private[spark] val wordIndex: Map[String, Int],
-                                     private[spark] val wordVectors: Array[Float]) extends Serializable with Saveable {
+                                               private[spark] val wordIndex: Map[String, Int],
+                                               private[spark] val wordVectors: Array[Float]) extends Serializable with Saveable {
 
   private val numWords = wordIndex.size
   // vectorSize: Dimension of each word's vector.
