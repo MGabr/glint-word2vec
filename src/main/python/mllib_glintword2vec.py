@@ -31,6 +31,7 @@ from py4j.protocol import Py4JJavaError
 from pyspark import since
 from pyspark.rdd import RDD, ignore_unicode_prefix
 from pyspark.mllib.common import callMLlibFunc
+from pyspark.mllib import feature
 from pyspark.mllib.feature import JavaVectorTransformer
 from pyspark.mllib.linalg import _convert_to_vector
 from pyspark.mllib.util import JavaLoader, JavaSaveable
@@ -44,6 +45,9 @@ class SimpleGlintWord2VecModel(JavaVectorTransformer, JavaSaveable, JavaLoader):
     class for Word2Vec model
     .. versionadded:: 1.2.0
     """
+
+    __module__ = "pyspark.mllib.feature"
+
     @since('1.2.0')
     def transform(self, word):
         """
@@ -88,6 +92,9 @@ class SimpleGlintWord2VecModel(JavaVectorTransformer, JavaSaveable, JavaLoader):
             .SimpleGlintWord2VecModel.load(sc._jsc.sc(), path)
         model = sc._jvm.org.apache.spark.mllib.api.python.SimpleGlintWord2VecModelWrapper(jmodel)
         return SimpleGlintWord2VecModel(model)
+
+
+feature.SimpleGlintWord2VecModel = SimpleGlintWord2VecModel
 
 
 @ignore_unicode_prefix
@@ -136,6 +143,9 @@ class SimpleGlintWord2Vec(object):
     ...     pass
     .. versionadded:: 1.2.0
     """
+
+    __module__ = "pyspark.mllib.feature"
+
     def __init__(self):
         """
         Construct Word2Vec instance
@@ -222,3 +232,5 @@ class SimpleGlintWord2Vec(object):
                                int(self.minCount), int(self.windowSize))
         return SimpleGlintWord2VecModel(jmodel)
 
+
+feature.SimpleGlintWord2Vec = SimpleGlintWord2Vec

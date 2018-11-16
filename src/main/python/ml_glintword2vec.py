@@ -21,6 +21,7 @@ if sys.version > '3':
 
 from pyspark import since, keyword_only
 from pyspark.rdd import ignore_unicode_prefix
+from pyspark.ml import feature
 from pyspark.ml.linalg import _convert_to_vector
 from pyspark.ml.param.shared import *
 from pyspark.ml.util import JavaMLReadable, JavaMLWritable
@@ -82,6 +83,8 @@ class SimpleGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, HasIn
     True
     .. versionadded:: 1.4.0
     """
+
+    __module__ = "pyspark.ml.feature"
 
     vectorSize = Param(Params._dummy(), "vectorSize",
                        "the dimension of codes after transforming from words",
@@ -201,11 +204,16 @@ class SimpleGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, HasIn
         return SimpleGlintWord2VecModel(java_model)
 
 
+feature.SimpleGlintWord2Vec = SimpleGlintWord2Vec
+
+
 class SimpleGlintWord2VecModel(JavaModel, JavaMLReadable, JavaMLWritable):
     """
     Model fitted by :py:class:`SimpleGlintWord2Vec`.
     .. versionadded:: 1.4.0
     """
+
+    __module__ = "pyspark.ml.feature"
 
     @since("1.5.0")
     def getVectors(self):
@@ -239,3 +247,6 @@ class SimpleGlintWord2VecModel(JavaModel, JavaMLReadable, JavaMLWritable):
             word = _convert_to_vector(word)
         tuples = self._java_obj.findSynonymsArray(word, num)
         return list(map(lambda st: (st._1(), st._2()), list(tuples)))
+
+
+feature.SimpleGlintWord2VecModel = SimpleGlintWord2VecModel
