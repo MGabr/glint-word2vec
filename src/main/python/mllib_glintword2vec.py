@@ -36,11 +36,11 @@ from pyspark.mllib.feature import JavaVectorTransformer
 from pyspark.mllib.linalg import _convert_to_vector
 from pyspark.mllib.util import JavaLoader, JavaSaveable
 
-__all__ = ['SimpleGlintWord2Vec', 'SimpleGlintWord2VecModel']
+__all__ = ['NaiveGlintWord2Vec', 'NaiveGlintWord2VecModel']
 
 
 
-class SimpleGlintWord2VecModel(JavaVectorTransformer, JavaSaveable, JavaLoader):
+class NaiveGlintWord2VecModel(JavaVectorTransformer, JavaSaveable, JavaLoader):
     """
     class for Word2Vec model
     .. versionadded:: 1.2.0
@@ -89,16 +89,16 @@ class SimpleGlintWord2VecModel(JavaVectorTransformer, JavaSaveable, JavaLoader):
         Load a model from the given path.
         """
         jmodel = sc._jvm.org.apache.spark.mllib.feature \
-            .SimpleGlintWord2VecModel.load(sc._jsc.sc(), path)
-        model = sc._jvm.org.apache.spark.mllib.api.python.SimpleGlintWord2VecModelWrapper(jmodel)
-        return SimpleGlintWord2VecModel(model)
+            .NaiveGlintWord2VecModel.load(sc._jsc.sc(), path)
+        model = sc._jvm.org.apache.spark.mllib.api.python.NaiveGlintWord2VecModelWrapper(jmodel)
+        return NaiveGlintWord2VecModel(model)
 
 
-feature.SimpleGlintWord2VecModel = SimpleGlintWord2VecModel
+feature.NaiveGlintWord2VecModel = NaiveGlintWord2VecModel
 
 
 @ignore_unicode_prefix
-class SimpleGlintWord2Vec(object):
+class NaiveGlintWord2Vec(object):
     """Word2Vec creates vector representation of words in a text corpus.
     The algorithm first constructs a vocabulary from the corpus
     and then learns vector representation of words in the vocabulary.
@@ -230,7 +230,7 @@ class SimpleGlintWord2Vec(object):
                                float(self.learningRate), int(self.numPartitions),
                                int(self.numIterations), self.seed,
                                int(self.minCount), int(self.windowSize))
-        return SimpleGlintWord2VecModel(jmodel)
+        return NaiveGlintWord2VecModel(jmodel)
 
 
-feature.SimpleGlintWord2Vec = SimpleGlintWord2Vec
+feature.NaiveGlintWord2Vec = NaiveGlintWord2Vec

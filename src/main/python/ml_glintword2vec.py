@@ -28,20 +28,20 @@ from pyspark.ml.util import JavaMLReadable, JavaMLWritable
 from pyspark.ml.wrapper import JavaEstimator, JavaModel
 from pyspark.ml.common import inherit_doc
 
-__all__ = ['SimpleGlintWord2Vec', 'SimpleGlintWord2VecModel']
+__all__ = ['NaiveGlintWord2Vec', 'NaiveGlintWord2VecModel']
 
 
 
 @inherit_doc
 @ignore_unicode_prefix
-class SimpleGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, HasInputCol, HasOutputCol,
+class NaiveGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, HasInputCol, HasOutputCol,
                JavaMLReadable, JavaMLWritable):
     """
-    SimpleGlintWord2Vec trains a model of `Map(String, Vector)`, i.e. transforms a word into a code for further
+    NaiveGlintWord2Vec trains a model of `Map(String, Vector)`, i.e. transforms a word into a code for further
     natural language processing or machine learning process.
     >>> sent = ("a b " * 100 + "a c " * 10).split(" ")
     >>> doc = spark.createDataFrame([(sent,), (sent,)], ["sentence"])
-    >>> word2Vec = SimpleGlintWord2Vec(vectorSize=5, seed=42, inputCol="sentence", outputCol="model")
+    >>> word2Vec = NaiveGlintWord2Vec(vectorSize=5, seed=42, inputCol="sentence", outputCol="model")
     >>> model = word2Vec.fit(doc)
     >>> model.getVectors().show()
     +----+--------------------+
@@ -67,7 +67,7 @@ class SimpleGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, HasIn
     DenseVector([0.5524, -0.4995, -0.3599, 0.0241, 0.3461])
     >>> word2vecPath = temp_path + "/word2vec"
     >>> word2Vec.save(word2vecPath)
-    >>> loadedWord2Vec = SimpleGlintWord2Vec.load(word2vecPath)
+    >>> loadedWord2Vec = NaiveGlintWord2Vec.load(word2vecPath)
     >>> loadedWord2Vec.getVectorSize() == word2Vec.getVectorSize()
     True
     >>> loadedWord2Vec.getNumPartitions() == word2Vec.getNumPartitions()
@@ -76,7 +76,7 @@ class SimpleGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, HasIn
     True
     >>> modelPath = temp_path + "/word2vec-model"
     >>> model.save(modelPath)
-    >>> loadedModel = SimpleGlintWord2VecModel.load(modelPath)
+    >>> loadedModel = NaiveGlintWord2VecModel.load(modelPath)
     >>> loadedModel.getVectors().first().word == model.getVectors().first().word
     True
     >>> loadedModel.getVectors().first().vector == model.getVectors().first().vector
@@ -111,8 +111,8 @@ class SimpleGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, HasIn
         __init__(self, vectorSize=100, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1, \
                  seed=None, inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000)
         """
-        super(SimpleGlintWord2Vec, self).__init__()
-        self._java_obj = self._new_java_obj("org.apache.spark.ml.feature.SimpleGlintWord2Vec", self.uid)
+        super(NaiveGlintWord2Vec, self).__init__()
+        self._java_obj = self._new_java_obj("org.apache.spark.ml.feature.NaiveGlintWord2Vec", self.uid)
         self._setDefault(vectorSize=100, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1,
                          windowSize=5, maxSentenceLength=1000)
         kwargs = self._input_kwargs
@@ -125,7 +125,7 @@ class SimpleGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, HasIn
         """
         setParams(self, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1, seed=None, \
                  inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000)
-        Sets params for this SimpleGlintWord2Vec.
+        Sets params for this NaiveGlintWord2Vec.
         """
         kwargs = self._input_kwargs
         return self._set(**kwargs)
@@ -201,15 +201,15 @@ class SimpleGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, HasIn
         return self.getOrDefault(self.maxSentenceLength)
 
     def _create_model(self, java_model):
-        return SimpleGlintWord2VecModel(java_model)
+        return NaiveGlintWord2VecModel(java_model)
 
 
-feature.SimpleGlintWord2Vec = SimpleGlintWord2Vec
+feature.NaiveGlintWord2Vec = NaiveGlintWord2Vec
 
 
-class SimpleGlintWord2VecModel(JavaModel, JavaMLReadable, JavaMLWritable):
+class NaiveGlintWord2VecModel(JavaModel, JavaMLReadable, JavaMLWritable):
     """
-    Model fitted by :py:class:`SimpleGlintWord2Vec`.
+    Model fitted by :py:class:`NaiveGlintWord2Vec`.
     .. versionadded:: 1.4.0
     """
 
@@ -249,4 +249,4 @@ class SimpleGlintWord2VecModel(JavaModel, JavaMLReadable, JavaMLWritable):
         return list(map(lambda st: (st._1(), st._2()), list(tuples)))
 
 
-feature.SimpleGlintWord2VecModel = SimpleGlintWord2VecModel
+feature.NaiveGlintWord2VecModel = NaiveGlintWord2VecModel
