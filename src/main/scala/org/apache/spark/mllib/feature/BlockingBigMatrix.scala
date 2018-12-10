@@ -16,7 +16,7 @@ class BlockingBigMatrix[V: ClassTag](underlying: BigMatrix[V], maxSimultaneousRe
   require(maxSimultaneousRequests > 0, "Max simultaneous requests must be non-zero")
 
   val rows: Long = underlying.rows
-  val cols: Int = underlying.cols
+  val cols: Long = underlying.cols
 
   val semaphore = new Semaphore(maxSimultaneousRequests)
 
@@ -43,13 +43,13 @@ class BlockingBigMatrix[V: ClassTag](underlying: BigMatrix[V], maxSimultaneousRe
   }
 
   override def push(rows: Array[Long],
-                    cols: Array[Int],
+                    cols: Array[Long],
                     values: Array[V])(implicit ec: ExecutionContext): Future[Boolean] = {
     blockingRequest(() => underlying.push(rows, cols, values))
   }
 
   override def pull(rows: Array[Long],
-                    cols: Array[Int])(implicit ec: ExecutionContext): Future[Array[V]] = {
+                    cols: Array[Long])(implicit ec: ExecutionContext): Future[Array[V]] = {
     blockingRequest(() => underlying.pull(rows, cols))
   }
 

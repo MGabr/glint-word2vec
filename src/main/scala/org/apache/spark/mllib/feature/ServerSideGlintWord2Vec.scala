@@ -21,17 +21,12 @@ import java.lang.{Iterable => JavaIterable}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
-
-import breeze.linalg.{Vector => BreezeVector}
 import com.github.fommil.netlib.BLAS.{getInstance => blas}
 import glint.Client
-import glint.models.client.BigMatrix
-import glint.models.client.granular.GranularBigMatrix
-import glint.models.client.retry.RetryBigMatrix
+import glint.models.client.granular.GranularBigWord2VecMatrix
 import org.json4s.DefaultFormats
 import org.json4s.JsonDSL._
 import org.json4s.jackson.JsonMethods._
-
 import org.apache.spark.{SparkContext, TaskContext}
 import org.apache.spark.annotation.Since
 import org.apache.spark.api.java.JavaRDD
@@ -51,13 +46,7 @@ import scala.concurrent.duration._
 /**
   *  Entry in vocabulary
   */
-private case class VocabWord(
-                              var word: String,
-                              var cn: Int,
-                              var point: Array[Int],
-                              var code: Array[Int],
-                              var codeLen: Int
-                            )
+private case class VocabWordCn(var word: String, var cn: Int)
 
 /**
   * Word2Vec creates vector representation of words in a text corpus.
@@ -86,9 +75,13 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
   private var seed = Utils.random.nextLong()
   private var minCount = 5
   private var maxSentenceLength = 1000
-  @transient
-  private var client: Option[Client] = Option.empty
-  private var maxSimultaneousRequests = 10;
+
+  private var batchSize = 50
+  private var n = 5
+
+  // default maximum payload size is 262144 bytes, akka.remote.OversizedPayloadException
+  // use a twentieth of this as maximum message size to account for size of primitive types and overheads
+  private var maximumMessageSize = 10000
 
   /**
     * Sets the maximum length (in words) of each sentence in the input data.
@@ -164,6 +157,8 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
   def setWindowSize(window: Int): this.type = {
     require(window > 0,
       s"Window of words must be positive but got ${window}")
+    require(batchSize * n * window <= maximumMessageSize,
+      s"Batch size * n * window has to be below or equal to ${maximumMessageSize} to avoid oversized Akka payload")
     this.window = window
     this
   }
@@ -181,20 +176,22 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
   }
 
   /**
-    * Sets the glint client to use, otherwise glint is started and stopped automatically in spark
+    * Sets the mini batch size (default: 50)
     */
-  def setClient(client: Client): this.type = {
-    this.client = Option(client)
+  def setBatchSize(batchSize: Int): this.type = {
+    require(batchSize * n * window <= maximumMessageSize,
+      s"Batch size * n * window has to be below or equal to ${maximumMessageSize} to avoid oversized Akka payload")
+    this.batchSize = batchSize
     this
   }
 
   /**
-    * Sets the maximum number of simultaneous requests to glint parameter servers per executor (default: 10)
-    * A low value like the default might lead to limited CPU usage.
-    * A high value might lead to too many threads being created.
+    * Sets n, the number of random negative examples (default: 5)
     */
-  def setMaxSimultaneousRequests(maxSimultaneousRequests: Int): this.type = {
-    this.maxSimultaneousRequests = maxSimultaneousRequests
+  def setN(n: Int): this.type = {
+    require(batchSize * n * window <= maximumMessageSize,
+      s"Batch size * n * window has to be below or equal to ${maximumMessageSize} to avoid oversized Akka payload")
+    this.n = n
     this
   }
 
@@ -207,7 +204,7 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
 
   private var trainWordsCount = 0L
   private var vocabSize = 0
-  @transient private var vocab: Array[VocabWord] = null
+  @transient private var vocab: Array[VocabWordCn] = null
   @transient private var vocabHash = mutable.HashMap.empty[String, Int]
 
   private def learnVocab[S <: Iterable[String]](dataset: RDD[S]): Unit = {
@@ -216,12 +213,7 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     vocab = words.map(w => (w, 1))
       .reduceByKey(_ + _)
       .filter(_._2 >= minCount)
-      .map(x => VocabWord(
-        x._1,
-        x._2,
-        new Array[Int](MAX_CODE_LENGTH),
-        new Array[Int](MAX_CODE_LENGTH),
-        0))
+      .map(x => VocabWordCn(x._1, x._2))
       .collect()
       .sortWith((a, b) => a.cn > b.cn)
 
@@ -249,81 +241,16 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     expTable
   }
 
-  private def createBinaryTree(): Unit = {
-    val count = new Array[Long](vocabSize * 2 + 1)
-    val binary = new Array[Int](vocabSize * 2 + 1)
-    val parentNode = new Array[Int](vocabSize * 2 + 1)
-    val code = new Array[Int](MAX_CODE_LENGTH)
-    val point = new Array[Int](MAX_CODE_LENGTH)
-    var a = 0
-    while (a < vocabSize) {
-      count(a) = vocab(a).cn
-      a += 1
+  private def getSigmoid(expTable: Broadcast[Array[Float]], f: Float, label: Float): Float = {
+    if (f > MAX_EXP) {
+      return label - 1
     }
-    while (a < 2 * vocabSize) {
-      count(a) = 1e9.toInt
-      a += 1
+    if (f < -MAX_EXP) {
+      return label
     }
-    var pos1 = vocabSize - 1
-    var pos2 = vocabSize
 
-    var min1i = 0
-    var min2i = 0
-
-    a = 0
-    while (a < vocabSize - 1) {
-      if (pos1 >= 0) {
-        if (count(pos1) < count(pos2)) {
-          min1i = pos1
-          pos1 -= 1
-        } else {
-          min1i = pos2
-          pos2 += 1
-        }
-      } else {
-        min1i = pos2
-        pos2 += 1
-      }
-      if (pos1 >= 0) {
-        if (count(pos1) < count(pos2)) {
-          min2i = pos1
-          pos1 -= 1
-        } else {
-          min2i = pos2
-          pos2 += 1
-        }
-      } else {
-        min2i = pos2
-        pos2 += 1
-      }
-      count(vocabSize + a) = count(min1i) + count(min2i)
-      parentNode(min1i) = vocabSize + a
-      parentNode(min2i) = vocabSize + a
-      binary(min2i) = 1
-      a += 1
-    }
-    // Now assign binary code to each vocabulary word
-    var i = 0
-    a = 0
-    while (a < vocabSize) {
-      var b = a
-      i = 0
-      while (b != vocabSize * 2 - 2) {
-        code(i) = binary(b)
-        point(i) = b
-        i += 1
-        b = parentNode(b)
-      }
-      vocab(a).codeLen = i
-      vocab(a).point(0) = vocabSize - 2
-      b = 0
-      while (b < i) {
-        vocab(a).code(i - b - 1) = code(b)
-        vocab(a).point(i - b) = point(b) - vocabSize
-        b += 1
-      }
-      a += 1
-    }
+    val ind = ((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2.0)).toInt
+    label - expTable.value(ind)
   }
 
   /**
@@ -337,34 +264,25 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
 
     learnVocab(dataset)
 
-    createBinaryTree()
-
     val sc = dataset.context
 
     val expTable = sc.broadcast(createExpTable())
-    val bcVocab = sc.broadcast(vocab)
+    val bcVocabCns = sc.broadcast(vocab.map(v => v.cn))
     val bcVocabHash = sc.broadcast(vocabHash)
     try {
-      doFit(dataset, sc, expTable, bcVocab, bcVocabHash)
+      doFit(dataset, sc, expTable, bcVocabCns, bcVocabHash)
     } finally {
       expTable.destroy(blocking = false)
-      bcVocab.destroy(blocking = false)
+      bcVocabCns.destroy(blocking = false)
       bcVocabHash.destroy(blocking = false)
     }
   }
 
-  private def asGranularRetryBlocking(matrix: BigMatrix[Float])
-                                     (implicit ec: ExecutionContext): BlockingBigMatrix[Float] = {
-    // 262144, akka.remote.OversizedPayloadException
-    val granular = new GranularBigMatrix[Float](matrix, 10000)
-    val retry = new RetryBigMatrix[Float](granular)
-    new BlockingBigMatrix[Float](retry, maxSimultaneousRequests)
-  }
 
   private def doFit[S <: Iterable[String]](
                                             dataset: RDD[S], sc: SparkContext,
                                             expTable: Broadcast[Array[Float]],
-                                            bcVocab: Broadcast[Array[VocabWord]],
+                                            bcVocabCns: Broadcast[Array[Int]],
                                             bcVocabHash: Broadcast[mutable.HashMap[String, Int]]) = {
     // each partition is a collection of sentences,
     // will be translated into arrays of Index integer
@@ -387,28 +305,12 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
         "which is " + vocabSize + "*" + vectorSize + " for now, less than `Int.MaxValue`.")
     }
 
-    var spawnedClient = false
-    if (client.isEmpty) {
-      client = Option(Client.runOnSpark(sc, "127.0.0.1"))
-      spawnedClient = true
-    }
-
     @transient
     implicit val ec = ExecutionContext.Implicits.global
 
-    val syn0 = asGranularRetryBlocking(client.get.matrix[Float](vocabSize, vectorSize))
-    val syn1 = asGranularRetryBlocking(client.get.matrix[Float](vocabSize, vectorSize))
-
-    // initialize syn0 weights randomly
-    val colIndices = (0 until vectorSize).toArray
-    for (rowIndex <- 0L until vocabSize) {
-      val rowIndices = Array.fill[Long](vectorSize)(rowIndex)
-      val values = Array.fill[Float](vectorSize)((initRandom.nextFloat() - 0.5f) / vectorSize)
-      syn0.push(rowIndices, colIndices, values)
-    }
-
-    syn1.waitNoRequests()
-    syn0.waitNoRequests()
+    @transient
+    val (client, matrix) = Client.runWithWord2VecMatrixOnSpark(sc, "127.0.0.1", bcVocabCns, vectorSize, n, 1000000)
+    val syn = new GranularBigWord2VecMatrix(matrix, maximumMessageSize)
 
     val totalWordsCounts = numIterations * trainWordsCount + 1
     var alpha = learningRate
@@ -416,13 +318,26 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     for (k <- 1 to numIterations) {
       val numWordsProcessedInPreviousIterations = (k - 1) * trainWordsCount
 
-      newSentences.foreachPartition { iter =>
+      val sentencesContext: RDD[Array[Array[Int]]] = newSentences.mapPartitionsWithIndex { (idx, sentenceIter) =>
+        val random = new XORShiftRandom(seed ^ ((idx + 1) << 16) ^ ((-k - 1) << 8))
+        sentenceIter.map { sentence =>
+          sentence.indices.toArray.map { i =>
+            val b = random.nextInt(window)
+            val contextIndices = (Math.max(0, i - b) until Math.min(i + b, sentence.length)).filter(j => j != i)
+            contextIndices.map(ci => sentence(ci)).toArray
+          }
+        }
+      }
+
+      newSentences.zip(sentencesContext).foreachPartition { iter =>
+        @transient
         implicit val ec = ExecutionContext.Implicits.global
 
         val idx = TaskContext.getPartitionId()
         val random = new XORShiftRandom(seed ^ ((idx + 1) << 16) ^ ((-k - 1) << 8))
+
         val model = iter.foldLeft((0L, 0L)) {
-          case ((lastWordCount, wordCount), sentence) =>
+          case ((lastWordCount, wordCount), (sentence, sentenceContext)) =>
             var lwc = lastWordCount
             var wc = wordCount
             if (wordCount - lastWordCount > 10000) {
@@ -434,86 +349,37 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
               logInfo(s"wordCount = ${wordCount + numWordsProcessedInPreviousIterations}, " +
                 s"alpha = $alpha")
             }
-            logInfo(s"alpha = $alpha")
             wc += sentence.length
-            var pos = 0
-            while (pos < sentence.length) {
-              val word = sentence(pos)
-              val b = random.nextInt(window)
-              // Train Skip-gram
-              var a = b
-              while (a < window * 2 + 1 - b) {
-                if (a != window) {
-                  val c = pos - window + a
-                  if (c >= 0 && c < sentence.length) {
-                    val lastWord = sentence(c)
-                    val l1 = lastWord
 
-                    Future.sequence(Iterator(syn0.pull(Array(l1)), syn1.pull(Array(l1)))).onSuccess { case l1Iter =>
-                      val syn0_l1 = l1Iter.next()(0)
-                      val syn1_l1 = l1Iter.next()(0)
+            val sentenceMiniBatches = sentence.sliding(batchSize, batchSize)
+            val sentenceContextMiniBatches = sentenceContext.sliding(batchSize, batchSize)
 
-                      // Hierarchical softmax
-                      var neu1e_updates = Array[Future[BreezeVector[Float]]]()
-                      var d = 0
-                      while (d < bcVocab.value(word).codeLen) {
-                        val inner = bcVocab.value(word).point(d)
-                        val l2 = inner
-
-                        // Propagate hidden -> output
-                        neu1e_updates :+ Future.sequence(Iterator(syn0.pull(Array(l2)), syn1.pull(Array(l2)))).map { l2Iter =>
-                          val syn0_l2 = l2Iter.next()(0)
-                          val syn1_l2 = l2Iter.next()(0)
-
-                          var f = syn0_l1.dot(syn1_l2)
-                          if (f > -MAX_EXP && f < MAX_EXP) {
-                            val ind = ((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2.0)).toInt
-                            f = expTable.value(ind)
-                            val g = ((1 - bcVocab.value(word).code(d) - f) * alpha).toFloat
-                            val syn1_l2_update = g * syn0_l1
-
-                            val l2RowIndices = Array.fill[Long](vectorSize)(l2)
-                            syn1.push(l2RowIndices, colIndices, syn1_l2_update.toArray)
-
-                            g * syn1_l2
-                          } else {
-                            BreezeVector.zeros[Float](vectorSize)
-                          }
-                        }
-                        d += 1
-                      }
-
-                      Future.sequence(neu1e_updates.toIterable).map(_.reduce(_ + _)).onSuccess { case syn0_l1_update =>
-
-                        val l1RowIndices = Array.fill[Long](vectorSize)(l1)
-                        syn0.push(l1RowIndices, colIndices, syn0_l1_update.toArray)
-                      }
-                    }
-                  }
-                }
-                a += 1
+            sentenceMiniBatches.zip(sentenceContextMiniBatches).foreach { case (wInput, wOutput) =>
+              val seed = random.nextLong()
+              val miniBatchFuture = syn.dotprod(wInput, wOutput, seed).map { case (fPlus, fMinus) =>
+                val gPlus = fPlus.map(f => getSigmoid(expTable, f, 1.0f) * alpha.toFloat)
+                val gMinus = fMinus.map(f => getSigmoid(expTable, f, 0.0f) * alpha.toFloat)
+                syn.adjust(wInput, wOutput, gPlus, gMinus, seed)
               }
-              pos += 1
+              Await.ready(miniBatchFuture, 1 minute)
             }
+
             (lwc, wc)
         }
-        syn1.waitNoRequests()
-        syn0.waitNoRequests()
       }
     }
 
     // pull all word vectors
     // this requires enough memory locally, but using a model based on a BigMatrix is currently not supported
-    val pulledWordVectors = Await.result(syn0.pull((0L until vocabSize).toArray).map(_.flatMap(v => v.toArray)), 1 minute)
+    val pullRows = (for (i <- 0L until vocabSize) yield Array.fill(vectorSize)(i)).flatten.toArray
+    val pullCols = Array.fill(vocabSize)((0L until vectorSize).toArray).flatten
+    val pulledWordVectors = Await.result(syn.pull(pullRows, pullCols), 1 minute)
 
-    syn1.destroy()
-    syn0.destroy()
+    syn.destroy()
+
     newSentences.unpersist()
 
-    if (spawnedClient) {
-      client.get.stop()
-      client = Option.empty
-    }
+    client.stop()
 
     val wordArray = vocab.map(_.word)
     new ServerSideGlintWord2VecModel(wordArray.zipWithIndex.toMap, pulledWordVectors)

@@ -400,7 +400,7 @@ class NaiveGlintWord2Vec extends Serializable with Logging {
     val syn1 = asGranularRetryBlocking(client.get.matrix[Float](vocabSize, vectorSize))
 
     // initialize syn0 weights randomly
-    val colIndices = (0 until vectorSize).toArray
+    val colIndices = (0L until vectorSize).toArray
     for (rowIndex <- 0L until vocabSize) {
       val rowIndices = Array.fill[Long](vectorSize)(rowIndex)
       val values = Array.fill[Float](vectorSize)((initRandom.nextFloat() - 0.5f) / vectorSize)
