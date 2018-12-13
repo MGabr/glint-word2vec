@@ -78,10 +78,11 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
 
   private var batchSize = 50
   private var n = 5
+  private var numParameterServers = 5
 
   // default maximum payload size is 262144 bytes, akka.remote.OversizedPayloadException
   // use a twentieth of this as maximum message size to account for size of primitive types and overheads
-  private var maximumMessageSize = 10000
+  private val maximumMessageSize = 10000
 
   /**
     * Sets the maximum length (in words) of each sentence in the input data.
@@ -192,6 +193,14 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     require(batchSize * n * window <= maximumMessageSize,
       s"Batch size * n * window has to be below or equal to ${maximumMessageSize} to avoid oversized Akka payload")
     this.n = n
+    this
+  }
+
+  /**
+    * Sets the number of parameter servers to create (default: 5)
+    */
+  def setNumParameterServers(numParameterServers: Int): this.type = {
+    this.numParameterServers = numParameterServers
     this
   }
 
@@ -309,7 +318,7 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     implicit val ec = ExecutionContext.Implicits.global
 
     @transient
-    val (client, matrix) = Client.runWithWord2VecMatrixOnSpark(sc, "127.0.0.1", bcVocabCns, vectorSize, n, 1000000)
+    val (client, matrix) = Client.runWithWord2VecMatrixOnSpark(sc, "127.0.0.1", bcVocabCns, vectorSize, n, 1000000, Some(numParameterServers))
     val syn = new GranularBigWord2VecMatrix(matrix, maximumMessageSize)
 
     val totalWordsCounts = numIterations * trainWordsCount + 1
