@@ -325,27 +325,41 @@ class ServerSideGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, H
                               "be divided into chunks up to the size.",
                               typeConverter=TypeConverters.toInt)
 
+    batchSize = Param(Params._dummy(), "batchSize",
+                      "the mini batch size",
+                      typeConverter=TypeConverters.toInt)
+    n = Param(Params._dummy(), "n",
+              "the number of random negative examples",
+              typeConverter=TypeConverters.toInt)
+    numParameterServers = Param(Params._dummy(), "numParameterServers",
+                                "the number of parameter servers to create",
+                                typeConverter=TypeConverters.toInt)
+
     @keyword_only
     def __init__(self, vectorSize=100, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1,
-                 seed=None, inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000):
+                 seed=None, inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000,
+                 batchSize=50, n=5, numParameterServers=5):
         """
         __init__(self, vectorSize=100, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1, \
-                 seed=None, inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000)
+                 seed=None, inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000, \
+                 batchSize=50, n=5, numParameterServers=5)
         """
         super(ServerSideGlintWord2Vec, self).__init__()
         self._java_obj = self._new_java_obj("org.apache.spark.ml.feature.ServerSideGlintWord2Vec", self.uid)
         self._setDefault(vectorSize=100, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1,
-                         windowSize=5, maxSentenceLength=1000)
+                         windowSize=5, maxSentenceLength=1000, batchSize=50, n=5, numParameterServers=5)
         kwargs = self._input_kwargs
         self.setParams(**kwargs)
 
     @keyword_only
     @since("1.4.0")
     def setParams(self, vectorSize=100, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1,
-                  seed=None, inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000):
+                  seed=None, inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000,
+                  batchSize=50, n=5, numParameterServers=5):
         """
         setParams(self, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1, seed=None, \
-                 inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000)
+                 inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000, \
+                 batchSize=50, n=5, numParameterServers=5)
         Sets params for this ServerSideGlintWord2Vec.
         """
         kwargs = self._input_kwargs
@@ -420,6 +434,42 @@ class ServerSideGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, H
         Gets the value of maxSentenceLength or its default value.
         """
         return self.getOrDefault(self.maxSentenceLength)
+
+    def setBatchSize(self, value):
+        """
+        Sets the value of :py:attr:`batchSize`.
+        """
+        return self._set(batchSize=value)
+
+    def getBatchSize(self):
+        """
+        Gets the value of batchSize or its default value.
+        """
+        return self.getOrDefault(self.batchSize)
+
+    def setN(self, value):
+        """
+        Sets the value of :py:attr:`n`.
+        """
+        return self._set(n=value)
+
+    def getN(self):
+        """
+        Gets the value of n or its default value.
+        """
+        return self.getOrDefault(self.n)
+
+    def setNumParameterServers(self, value):
+        """
+        Sets the value of :py:attr:`numParameterServers`.
+        """
+        return self._set(numParameterServers=value)
+
+    def getNumParameterServers(self):
+        """
+        Gets the value of numParameterServers or its default value.
+        """
+        return self.getOrDefault(self.numParameterServers)
 
     def _create_model(self, java_model):
         return ServerSideGlintWord2VecModel(java_model)

@@ -105,6 +105,25 @@ private[feature] trait ServerSideGlintWord2VecBase extends Params
   /** @group getParam */
   def getMaxSentenceLength: Int = $(maxSentenceLength)
 
+  /**
+    * The mini batch size
+    */
+  final val batchSize = new IntParam(this, "batchSize", "the mini batch size")
+  setDefault(batchSize -> 50)
+
+  /**
+    * The number of random negative examples
+    */
+  final val n = new IntParam(this, "n", "the number of random negative examples")
+  setDefault(n -> 5)
+
+  /**
+    * The number of parameter servers to create
+    */
+  final val numParameterServers = new IntParam(this, "numParameterServers",
+    "the number of parameter servers to create")
+  setDefault(numParameterServers -> 5)
+
   setDefault(stepSize -> 0.025)
   setDefault(maxIter -> 1)
 
@@ -170,6 +189,15 @@ final class ServerSideGlintWord2Vec @Since("1.4.0")(
   @Since("2.0.0")
   def setMaxSentenceLength(value: Int): this.type = set(maxSentenceLength, value)
 
+  /** @group setParam */
+  def setBatchSize(value: Int): this.type = set(batchSize, value)
+
+  /** @group expertSetParam */
+  def setN(value: Int): this.type = set(n, value)
+
+  /** @group setParam */
+  def setNumParameterServers(value: Int): this.type = set(numParameterServers, value)
+
   @Since("2.0.0")
   override def fit(dataset: Dataset[_]): ServerSideGlintWord2VecModel = {
     transformSchema(dataset.schema, logging = true)
@@ -183,6 +211,9 @@ final class ServerSideGlintWord2Vec @Since("1.4.0")(
       .setVectorSize($(vectorSize))
       .setWindowSize($(windowSize))
       .setMaxSentenceLength($(maxSentenceLength))
+      .setBatchSize($(batchSize))
+      .setN($(n))
+      .setNumParameterServers($(numParameterServers))
       .fit(input)
     copyValues(new ServerSideGlintWord2VecModel(uid, wordVectors).setParent(this))
   }
