@@ -124,6 +124,13 @@ private[feature] trait ServerSideGlintWord2VecBase extends Params
     "the number of parameter servers to create")
   setDefault(numParameterServers -> 5)
 
+  /**
+    * The host name of the master of the parameter servers
+    */
+  final val parameterServerMasterHost = new Param[String](this, "parameterServerMasterHost",
+    "the host name of the master of the parameter servers")
+  setDefault(parameterServerMasterHost -> "127.0.0.1")
+
   setDefault(stepSize -> 0.025)
   setDefault(maxIter -> 1)
 
@@ -198,6 +205,9 @@ final class ServerSideGlintWord2Vec @Since("1.4.0")(
   /** @group setParam */
   def setNumParameterServers(value: Int): this.type = set(numParameterServers, value)
 
+  /** @group setParam */
+  def setParameterServerMasterHost(value: String): this.type = set(parameterServerMasterHost, value)
+
   @Since("2.0.0")
   override def fit(dataset: Dataset[_]): ServerSideGlintWord2VecModel = {
     transformSchema(dataset.schema, logging = true)
@@ -214,6 +224,7 @@ final class ServerSideGlintWord2Vec @Since("1.4.0")(
       .setBatchSize($(batchSize))
       .setN($(n))
       .setNumParameterServers($(numParameterServers))
+      .setParameterServerMasterHost($(parameterServerMasterHost))
       .fit(input)
     copyValues(new ServerSideGlintWord2VecModel(uid, wordVectors).setParent(this))
   }
