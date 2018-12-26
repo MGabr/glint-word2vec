@@ -79,7 +79,8 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
   private var batchSize = 50
   private var n = 5
   private var numParameterServers = 5
-  private var parameterServerMasterHost = "127.0.0.1"
+  private var parameterServerMasterHost = ""
+  private var unigramTableSize = 100000000
 
   // default maximum payload size is 262144 bytes, akka.remote.OversizedPayloadException
   // use a twentieth of this as maximum message size to account for size of primitive types and overheads
@@ -206,10 +207,22 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
   }
 
   /**
-    * Sets the host name of the master of the parameter servers (default for local testing: 127.0.0.1)
+    * Sets the host name of the master of the parameter servers.
+    * Set to "" for automatic detection which may not always work and "127.0.0.1" for local testing
+    * (default: "")
     */
   def setParameterServerMasterHost(parameterServerMasterHost: String): this.type = {
     this.parameterServerMasterHost = parameterServerMasterHost
+    this
+  }
+
+  /**
+    * Sets the size of the unigram table.
+    * Only needs to be changed to a lower value if there is not enough memory for local testing.
+    * (default: 100000000)
+    */
+  def setUnigramTableSize(unigramTableSize: Int): this.type = {
+    this.unigramTableSize = unigramTableSize
     this
   }
 
@@ -327,7 +340,8 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     implicit val ec = ExecutionContext.Implicits.global
 
     @transient
-    val (client, matrix) = Client.runWithWord2VecMatrixOnSpark(sc, parameterServerMasterHost, bcVocabCns, vectorSize, n, 1000000, Some(numParameterServers))
+    val (client, matrix) = Client.runWithWord2VecMatrixOnSpark(
+      sc, parameterServerMasterHost, bcVocabCns, vectorSize, n, unigramTableSize, numParameterServers)
     val syn = new GranularBigWord2VecMatrix(matrix, maximumMessageSize)
 
     val totalWordsCounts = numIterations * trainWordsCount + 1

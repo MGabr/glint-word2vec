@@ -335,23 +335,28 @@ class ServerSideGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, H
                                 "the number of parameter servers to create",
                                 typeConverter=TypeConverters.toInt)
     parameterServerMasterHost = Param(Params._dummy(), "parameterServerMasterHost",
-                                      "the host name of the master of the parameter servers",
+                                      "the host name of the master of the parameter servers. Set to \"\" for " +
+                                      "automatic detection which may not always work and \"127.0.0.1\" for local " +
+                                      "testing",
                                       typeConverter=TypeConverters.toString)
+    unigramTableSize = Param(Params._dummy(), "unigramTableSize",
+                             "the size of the unigram table. Only needs to be changed to a lower value if there is " +
+                             "not enough memory for local testing")
 
     @keyword_only
     def __init__(self, vectorSize=100, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1,
                  seed=None, inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000,
-                 batchSize=50, n=5, numParameterServers=5, parameterServerMasterHost="127.0.0.1"):
+                 batchSize=50, n=5, numParameterServers=5, parameterServerMasterHost="", unigramTableSize=100000000):
         """
         __init__(self, vectorSize=100, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1, \
                  seed=None, inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000, \
-                 batchSize=50, n=5, numParameterServers=5, parameterServerMasterHost="127.0.0.1")
+                 batchSize=50, n=5, numParameterServers=5, parameterServerMasterHost="", unigramTableSize=100000000)
         """
         super(ServerSideGlintWord2Vec, self).__init__()
         self._java_obj = self._new_java_obj("org.apache.spark.ml.feature.ServerSideGlintWord2Vec", self.uid)
         self._setDefault(vectorSize=100, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1,
                          windowSize=5, maxSentenceLength=1000, batchSize=50, n=5, numParameterServers=5,
-                         parameterServerMasterHost="127.0.0.1")
+                         parameterServerMasterHost="", unigramTableSize=100000000)
         kwargs = self._input_kwargs
         self.setParams(**kwargs)
 
@@ -359,11 +364,11 @@ class ServerSideGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, H
     @since("1.4.0")
     def setParams(self, vectorSize=100, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1,
                   seed=None, inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000,
-                  batchSize=50, n=5, numParameterServers=5, parameterServerMasterHost="127.0.0.1"):
+                  batchSize=50, n=5, numParameterServers=5, parameterServerMasterHost="", unigramTableSize=100000000):
         """
         setParams(self, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1, seed=None, \
                  inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000, \
-                 batchSize=50, n=5, numParameterServers=5, parameterServerMasterHost="127.0.0.1")
+                 batchSize=50, n=5, numParameterServers=5, parameterServerMasterHost="", unigramTableSize=100000000)
         Sets params for this ServerSideGlintWord2Vec.
         """
         kwargs = self._input_kwargs
@@ -486,6 +491,18 @@ class ServerSideGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, H
         Gets the value of parameterServerMasterHost or its default value.
         """
         return self.getOrDefault(self.parameterServerMasterHost)
+
+    def setUnigramTableSize(self, value):
+        """
+        Sets the value of :py:attr:`unigramTableSize`.
+        """
+        return self._set(unigramTableSize=value)
+
+    def getUnigramTableSize(self):
+        """
+        Gets the value of unigramTableSize or its default value.
+        """
+        return self.getOrDefault(self.unigramTableSize)
 
     def _create_model(self, java_model):
         return ServerSideGlintWord2VecModel(java_model)
