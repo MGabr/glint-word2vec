@@ -79,6 +79,7 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
   private var batchSize = 50
   private var n = 5
   private var numParameterServers = 5
+  private var requestParallelism = 5
   private var parameterServerMasterHost = ""
   private var unigramTableSize = 100000000
 
@@ -203,6 +204,16 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     */
   def setNumParameterServers(numParameterServers: Int): this.type = {
     this.numParameterServers = numParameterServers
+    this
+  }
+
+  /**
+    * Sets the request parallelism, the maximum amount of parallel requests to the parameter servers.
+    * A single request in this case consists of a request to each parameter server
+    * (default: 5)
+    */
+  def setRequestParallelism(requestParallelism: Int): this.type = {
+    this.requestParallelism = requestParallelism
     this
   }
 
@@ -368,7 +379,7 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
         val idx = TaskContext.getPartitionId()
         val random = new XORShiftRandom(seed ^ ((idx + 1) << 16) ^ ((-k - 1) << 8))
 
-        val model = iter.foldLeft((0L, 0L)) {
+        iter.foldLeft((0L, 0L)) {
           case ((lastWordCount, wordCount), (sentence, sentenceContext)) =>
             var lwc = lastWordCount
             var wc = wordCount
@@ -385,16 +396,15 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
 
             val sentenceMiniBatches = sentence.sliding(batchSize, batchSize)
             val sentenceContextMiniBatches = sentenceContext.sliding(batchSize, batchSize)
-
-            sentenceMiniBatches.zip(sentenceContextMiniBatches).foreach { case (wInput, wOutput) =>
+            val miniBatchFutures = sentenceMiniBatches.zip(sentenceContextMiniBatches).map { case (wInput, wOutput) =>
               val seed = random.nextLong()
-              val miniBatchFuture = syn.dotprod(wInput, wOutput, seed).map { case (fPlus, fMinus) =>
+              syn.dotprod(wInput, wOutput, seed).flatMap { case (fPlus, fMinus) =>
                 val gPlus = fPlus.map(f => getSigmoid(expTable, f, 1.0f) * alpha.toFloat)
                 val gMinus = fMinus.map(f => getSigmoid(expTable, f, 0.0f) * alpha.toFloat)
                 syn.adjust(wInput, wOutput, gPlus, gMinus, seed)
               }
-              Await.ready(miniBatchFuture, 1 minute)
             }
+            awaitSliding(miniBatchFutures, requestParallelism, 1 minute).foreach(identity)
 
             (lwc, wc)
         }
@@ -407,7 +417,7 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     val pullCols = Array.fill(vocabSize)((0L until vectorSize).toArray).flatten
     val pulledWordVectors = Await.result(syn.pull(pullRows, pullCols), 1 minute)
 
-    syn.destroy()
+    Await.ready(syn.destroy(), 1 minute)
 
     newSentences.unpersist()
 
@@ -425,6 +435,20 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
   @Since("1.1.0")
   def fit[S <: JavaIterable[String]](dataset: JavaRDD[S]): ServerSideGlintWord2VecModel = {
     fit(dataset.rdd.map(_.asScala))
+  }
+
+  /**
+    * Awaits only a sliding batch of futures in parallel. Instead of waiting for the entire batch to finish
+    * waits only for the head future before requesting the next future.
+    *
+    * See http://www.russellspitzer.com/2017/02/27/Concurrency-In-Spark/
+    */
+  private def awaitSliding[T](it: Iterator[Future[T]], slidingBatchSize: Int, timeout: Duration)
+                             (implicit ec: ExecutionContext): Iterator[T] = {
+    val slidingIterator = it.sliding(slidingBatchSize - 1).withPartial(true)
+    val (initIterator, tailIterator) = slidingIterator.span(_ => slidingIterator.hasNext)
+    initIterator.map(futureBatch => Await.result(futureBatch.head, timeout)) ++
+      tailIterator.flatMap(lastBatch => Await.result(Future.sequence(lastBatch), timeout))
   }
 }
 
