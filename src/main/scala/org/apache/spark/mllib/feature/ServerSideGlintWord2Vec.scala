@@ -417,11 +417,9 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     val pullCols = Array.fill(vocabSize)((0L until vectorSize).toArray).flatten
     val pulledWordVectors = Await.result(syn.pull(pullRows, pullCols), 1 minute)
 
-    Await.ready(syn.destroy(), 1 minute)
+    client.terminateOnSpark(sc)
 
     newSentences.unpersist()
-
-    client.stop()
 
     val wordArray = vocab.map(_.word)
     new ServerSideGlintWord2VecModel(wordArray.zipWithIndex.toMap, pulledWordVectors)
