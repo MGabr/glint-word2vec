@@ -125,15 +125,6 @@ private[feature] trait ServerSideGlintWord2VecBase extends Params
   setDefault(numParameterServers -> 5)
 
   /**
-    * The request parallelism, the maximum amount of parallel requests to the parameter servers.
-    * A single request in this case consists of a request to each parameter server
-    */
-  final val requestParallelism = new IntParam(this, "requestParallelism", "the request parallelism, " +
-    "the maximum amount of parallel requests to the parameter servers. A single request in this case consists of a " +
-    "request to each parameter server")
-  setDefault(requestParallelism -> 5)
-
-  /**
     * The host name of the master of the parameter servers.
     * Set to "" for automatic detection which may not always work and "127.0.0.1" for local testing
     */
@@ -224,9 +215,6 @@ final class ServerSideGlintWord2Vec @Since("1.4.0")(
   /** @group setParam */
   def setNumParameterServers(value: Int): this.type = set(numParameterServers, value)
 
-  /** @group setParam**/
-  def setRequestParallelism(value: Int): this.type = set(requestParallelism, value)
-
   /** @group setParam */
   def setParameterServerMasterHost(value: String): this.type = set(parameterServerMasterHost, value)
 
@@ -248,7 +236,6 @@ final class ServerSideGlintWord2Vec @Since("1.4.0")(
       .setBatchSize($(batchSize))
       .setN($(n))
       .setNumParameterServers($(numParameterServers))
-      .setRequestParallelism($(requestParallelism))
       .setParameterServerMasterHost($(parameterServerMasterHost))
       .setUnigramTableSize($(unigramTableSize))
       .fit(input)

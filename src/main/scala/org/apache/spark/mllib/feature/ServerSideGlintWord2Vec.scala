@@ -79,7 +79,6 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
   private var batchSize = 50
   private var n = 5
   private var numParameterServers = 5
-  private var requestParallelism = 5
   private var parameterServerMasterHost = ""
   private var unigramTableSize = 100000000
 
@@ -204,16 +203,6 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     */
   def setNumParameterServers(numParameterServers: Int): this.type = {
     this.numParameterServers = numParameterServers
-    this
-  }
-
-  /**
-    * Sets the request parallelism, the maximum amount of parallel requests to the parameter servers.
-    * A single request in this case consists of a request to each parameter server
-    * (default: 5)
-    */
-  def setRequestParallelism(requestParallelism: Int): this.type = {
-    this.requestParallelism = requestParallelism
     this
   }
 
@@ -394,17 +383,19 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
             }
             wc += sentence.length
 
+            // actual training - communicate with parameter servers
             val sentenceMiniBatches = sentence.sliding(batchSize, batchSize)
             val sentenceContextMiniBatches = sentenceContext.sliding(batchSize, batchSize)
             val miniBatchFutures = sentenceMiniBatches.zip(sentenceContextMiniBatches).map { case (wInput, wOutput) =>
               val seed = random.nextLong()
-              syn.dotprod(wInput, wOutput, seed).flatMap { case (fPlus, fMinus) =>
+              syn.dotprod(wInput, wOutput, seed).map { case (fPlus, fMinus) =>
                 val gPlus = fPlus.map(f => getSigmoid(expTable, f, 1.0f) * alpha.toFloat)
                 val gMinus = fMinus.map(f => getSigmoid(expTable, f, 0.0f) * alpha.toFloat)
                 syn.adjust(wInput, wOutput, gPlus, gMinus, seed)
               }
             }
-            awaitSliding(miniBatchFutures, requestParallelism, 1 minute).foreach(identity)
+            // the map here is important because simply using foreach would start all futures at the same time
+            miniBatchFutures.map(Await.ready(_, 1 minute)).foreach(identity)
 
             (lwc, wc)
         }
@@ -435,19 +426,6 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     fit(dataset.rdd.map(_.asScala))
   }
 
-  /**
-    * Awaits only a sliding batch of futures in parallel. Instead of waiting for the entire batch to finish
-    * waits only for the head future before requesting the next future.
-    *
-    * See http://www.russellspitzer.com/2017/02/27/Concurrency-In-Spark/
-    */
-  private def awaitSliding[T](it: Iterator[Future[T]], slidingBatchSize: Int, timeout: Duration)
-                             (implicit ec: ExecutionContext): Iterator[T] = {
-    val slidingIterator = it.sliding(slidingBatchSize - 1).withPartial(true)
-    val (initIterator, tailIterator) = slidingIterator.span(_ => slidingIterator.hasNext)
-    initIterator.map(futureBatch => Await.result(futureBatch.head, timeout)) ++
-      tailIterator.flatMap(lastBatch => Await.result(Future.sequence(lastBatch), timeout))
-  }
 }
 
 /**
