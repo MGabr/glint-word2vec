@@ -35,7 +35,7 @@ __all__ = ['ServerSideGlintWord2Vec', 'ServerSideGlintWord2VecModel']
 @inherit_doc
 @ignore_unicode_prefix
 class ServerSideGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, HasInputCol, HasOutputCol,
-                         JavaMLReadable, JavaMLWritable):
+                              JavaMLReadable, JavaMLWritable):
     """
     ServerSideGlintWord2Vec trains a model of `Map(String, Vector)`, i.e. transforms a word into a code for further
     natural language processing or machine learning process.

@@ -111,11 +111,17 @@ private[feature] trait ServerSideGlintWord2VecBase extends Params
   final val batchSize = new IntParam(this, "batchSize", "the mini batch size")
   setDefault(batchSize -> 50)
 
+  /** @group getParam */
+  def getBatchSize: Int = $(batchSize)
+
   /**
     * The number of random negative examples
     */
   final val n = new IntParam(this, "n", "the number of random negative examples")
   setDefault(n -> 5)
+
+  /** @group getParam */
+  def getN: Int = $(n)
 
   /**
     * The number of parameter servers to create
@@ -123,6 +129,9 @@ private[feature] trait ServerSideGlintWord2VecBase extends Params
   final val numParameterServers = new IntParam(this, "numParameterServers",
     "the number of parameter servers to create")
   setDefault(numParameterServers -> 5)
+
+  /** @group getParam */
+  def getNumParameterServers: Int = $(numParameterServers)
 
   /**
     * The host name of the master of the parameter servers.
@@ -133,6 +142,9 @@ private[feature] trait ServerSideGlintWord2VecBase extends Params
       "always work and \"127.0.0.1\" for local testing")
   setDefault(parameterServerMasterHost -> "")
 
+  /** @group getParam */
+  def getParameterServerMasterHost: String = $(parameterServerMasterHost)
+
   /**
     * The size of the unigram table.
     * Only needs to be changed to a lower value if there is not enough memory for local testing.
@@ -140,6 +152,9 @@ private[feature] trait ServerSideGlintWord2VecBase extends Params
   final val unigramTableSize = new IntParam(this, "unigramTableSize", "the size of the " +
     "unigram table. Only needs to be changed to a lower value if there is not enough memory for local testing")
   setDefault(unigramTableSize -> 100000000)
+
+  /** @group getParam */
+  def getUnigramTableSize: Int = $(unigramTableSize)
 
   setDefault(stepSize -> 0.025)
   setDefault(maxIter -> 1)
