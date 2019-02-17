@@ -98,9 +98,9 @@ class ServerSideGlintWord2VecSpec extends fixture.FlatSpec with fixture.TestData
 
     val model = ServerSideGlintWord2VecModel.load(modelPath)
 
-    val (synonyms, similarities) = model.findSynonymsArray("frankreich", 5).unzip
+    val (synonyms, similarities) = model.findSynonymsArray("frankreich", 10).unzip
 
-    synonyms should have length 5
+    synonyms should have length 10
     synonyms should contain("paris")
     similarities(synonyms.indexOf("paris")) should be > 0.9
   }
@@ -113,12 +113,12 @@ class ServerSideGlintWord2VecSpec extends fixture.FlatSpec with fixture.TestData
 
     val model = ServerSideGlintWord2VecModel.load(modelPath)
 
-    val (synonyms, similarities) = model.findSynonyms("frankreich", 5)
+    val (synonyms, similarities) = model.findSynonyms("frankreich", 10)
       .collect()
       .map(row => (row.getAs[String]("word"), row.getAs[Double]("similarity")))
       .unzip
 
-    synonyms should have length 5
+    synonyms should have length 10
     synonyms should contain("paris")
     similarities(synonyms.indexOf("paris")) should be > 0.9
   }
