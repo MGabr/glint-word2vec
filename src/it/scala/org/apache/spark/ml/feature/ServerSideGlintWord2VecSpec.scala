@@ -1,12 +1,13 @@
 package org.apache.spark.ml.feature
 
 import org.apache.spark.ml.linalg.{Vector, Vectors}
-import org.scalatest.{Matchers, fixture}
+import org.scalatest.{Inspectors, Matchers, fixture}
 
 /**
   * ServerSideGlintWord2Vec integration test specification
   */
-class ServerSideGlintWord2VecSpec extends fixture.FlatSpec with fixture.TestDataFixture with SparkTest with Matchers {
+class ServerSideGlintWord2VecSpec extends fixture.FlatSpec with fixture.TestDataFixture with SparkTest
+  with Matchers with Inspectors {
 
   /**
     * Path to small test data set consisting of wikipedia articles about countries and capital cities.
@@ -81,13 +82,11 @@ class ServerSideGlintWord2VecSpec extends fixture.FlatSpec with fixture.TestData
 
     val model = ServerSideGlintWord2VecModel.load(modelPath)
 
-    val countryVecs = model.transform(countriesDf).collect().map(row => row.getAs[Vector]("model"))
+    val countryVecs = model.transform(countriesDf).collect().map(row => row.getAs[Vector]("model").asBreeze)
 
     countryVecs should have length countries.length
-    for (countryVec <- countryVecs) {
-      countryVec.asBreeze should have length model.getVectorSize
-      countryVec.asBreeze.sum should not equal 0
-    }
+    all (countryVecs) should have length model.getVectorSize
+    forAll (countryVecs) {countryVec => countryVec.sum should be (not equal 0)}
   }
 
   it should "find synonyms of a word as array" in withSession { s =>
