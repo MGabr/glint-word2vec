@@ -186,7 +186,7 @@ final class ServerSideGlintWord2Vec @Since("1.4.0")(
   extends Estimator[ServerSideGlintWord2VecModel] with ServerSideGlintWord2VecBase with DefaultParamsWritable {
 
   @Since("1.4.0")
-  def this() = this(Identifiable.randomUID("w2v"))
+  def this() = this(Identifiable.randomUID("gw2v"))
 
   /** @group setParam */
   @Since("1.4.0")
@@ -301,6 +301,9 @@ class ServerSideGlintWord2VecModel private[ml](
   /**
     * Returns a dataframe with two fields, "word" and "vector", with "word" being a String and
     * and the vector the DenseVector that it is mapped to.
+    *
+    * Note that this implementation pulls the whole distributed matrix to the client and might therefore not work with
+    * large matrices which do not fit into the client's memory.
     */
   @Since("1.5.0")
   @transient lazy val getVectors: DataFrame = {
@@ -312,6 +315,8 @@ class ServerSideGlintWord2VecModel private[ml](
   /**
     * Find "num" number of words closest in similarity to the given word, not
     * including the word itself.
+    *
+    * Note that this implementation makes a blocking call to the underlying distributed matrix.
     *
     * @return a dataframe with columns "word" and "similarity" of the word and the cosine
     * similarities between the synonyms and the given word.
@@ -327,6 +332,8 @@ class ServerSideGlintWord2VecModel private[ml](
     * If the supplied vector is the vector representation of a word in the model's vocabulary,
     * that word will be in the results.
     *
+    * Note that this implementation makes a blocking call to the underlying distributed matrix.
+    *
     * @return a dataframe with columns "word" and "similarity" of the word and the cosine
     * similarities between the synonyms and the given word vector.
     */
@@ -341,6 +348,8 @@ class ServerSideGlintWord2VecModel private[ml](
     * If the supplied vector is the vector representation of a word in the model's vocabulary,
     * that word will be in the results.
     *
+    * Note that this implementation makes a blocking call to the underlying distributed matrix.
+    *
     * @return an array of the words and the cosine similarities between the synonyms given
     * word vector.
     */
@@ -352,6 +361,8 @@ class ServerSideGlintWord2VecModel private[ml](
   /**
     * Find "num" number of words closest in similarity to the given word, not
     * including the word itself.
+    *
+    * Note that this implementation makes a blocking call to the underlying distributed matrix.
     *
     * @return an array of the words and the cosine similarities between the synonyms given
     * word vector.
@@ -417,6 +428,18 @@ class ServerSideGlintWord2VecModel private[ml](
 
   @Since("1.6.0")
   override def write: MLWriter = new ServerSideGlintWord2VecModelWriter(this)
+
+  /**
+    * Returns a local [[org.apache.spark.ml.feature.Word2VecModel Word2VecModel]], the default Spark implementation.
+    * This can be used if only the training should be performed with a Glint cluster.
+    *
+    * Note that this implementation pulls the whole distributed matrix to the client and might therefore not work with
+    * large matrices which do not fit into the client's memory.
+    *
+    * Note also that while this implementation can train large models, the word vectors in the default Spark
+    * implementation are limited to 8GB because of the broadcast size limit.
+    */
+  def toLocal: Word2VecModel = new Word2VecModel(Identifiable.randomUID("w2v"), mllibModel.toLocal)
 
   /**
     * Stops the model and releases the underlying distributed matrix and broadcasts.

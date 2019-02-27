@@ -6,7 +6,6 @@ import org.apache.spark.ml.linalg.{Vector, Vectors}
 import org.apache.spark.mllib
 import org.apache.spark.sql.SparkSession
 import org.scalatest.concurrent.ScalaFutures
-import org.scalatest.time.{Millis, Seconds, Span}
 import org.scalatest.{BeforeAndAfterAll, FlatSpec, Inspectors, Matchers}
 
 import scala.concurrent.ExecutionContext
@@ -15,7 +14,7 @@ import scala.concurrent.ExecutionContext
   * ServerSideGlintWord2Vec integration test specification
   */
 class ServerSideGlintWord2VecSpec extends FlatSpec with ScalaFutures with BeforeAndAfterAll
-  with Matchers with Inspectors{
+  with Matchers with Inspectors {
 
   /**
     * Path to small test data set consisting of wikipedia articles about countries and capital cities.
@@ -42,15 +41,17 @@ class ServerSideGlintWord2VecSpec extends FlatSpec with ScalaFutures with Before
   private var modelCreated = false
 
   /**
+    * Path to save the local model, the default Spark implementation, to
+    */
+  private val localModelPath = "/var/tmp/local/de_wikipedia_articles_country_capitals.model"
+
+  /**
     * The Spark session to use
     */
   private lazy val s: SparkSession = SparkSession.builder().appName(getClass.getSimpleName).getOrCreate()
 
 
   implicit val ec = ExecutionContext.Implicits.global
-
-  implicit val defaultPatience =
-    PatienceConfig(timeout = Span(60, Seconds), interval = Span(500, Millis))
 
 
   override def beforeAll(): Unit = {
@@ -306,6 +307,23 @@ class ServerSideGlintWord2VecSpec extends FlatSpec with ScalaFutures with Before
 
       vectorDf.schema.fieldNames should equal(Array("word", "vector"))
       vectorDf.count().toInt shouldBe model.numWords
+    } finally {
+      model.stop()
+    }
+  }
+
+  it should "convert and save as local model" in {
+    if (!modelCreated) {
+      pending
+    }
+
+    val model = ServerSideGlintWord2VecModel.load(modelPath)
+    try {
+      val localModel = model.toLocal
+      localModel.save(localModelPath)
+
+      localModel shouldBe a[Word2VecModel]
+      FileSystem.get(s.sparkContext.hadoopConfiguration).exists(new Path(localModelPath)) shouldBe true
     } finally {
       model.stop()
     }

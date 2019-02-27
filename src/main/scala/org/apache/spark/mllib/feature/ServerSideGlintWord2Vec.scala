@@ -614,6 +614,21 @@ class ServerSideGlintWord2VecModel private[spark](private[spark] val wordIndex: 
   }
 
   /**
+    * Returns a local [[org.apache.spark.mllib.feature.Word2VecModel Word2VecModel]], the default Spark implementation.
+    * This can be used if only the training should be performed with a Glint cluster.
+    *
+    * Note that this implementation pulls the whole distributed matrix to the client and might therefore not work with
+    * large matrices which do not fit into the client's memory.
+    *
+    * Note also that while this implementation can train large models, the word vectors in the default Spark
+    * implementation are limited to 8GB because of the broadcast size limit.
+    */
+  def toLocal: Word2VecModel = {
+    val vectors =  Await.result(matrix.pull((0L until numWords).toArray), 3 minutes)
+    new Word2VecModel(wordIndex, vectors.flatMap(_.toArray))
+  }
+
+  /**
     * Stops the model and releases the underlying distributed matrix and broadcasts.
     * This model can't be used anymore afterwards.
     *
