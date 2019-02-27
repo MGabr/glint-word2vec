@@ -335,5 +335,11 @@ class ServerSideGlintWord2VecModel(JavaModel, JavaMLReadable, JavaMLWritable):
         tuples = self._java_obj.findSynonymsArray(word, num)
         return list(map(lambda st: (st._1(), st._2()), list(tuples)))
 
+    def stop(self):
+        """
+        Stops the model and releases the underlying distributed matrix and broadcasts.
+        This model can't be used anymore afterwards.
+        """
+        self._call_java("stop")
 
 feature.ServerSideGlintWord2VecModel = ServerSideGlintWord2VecModel
