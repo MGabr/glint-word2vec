@@ -19,7 +19,7 @@ import sys
 if sys.version > '3':
     basestring = str
 
-from pyspark import since, keyword_only
+from pyspark import keyword_only
 from pyspark.rdd import ignore_unicode_prefix
 from pyspark.ml import feature
 from pyspark.ml.linalg import _convert_to_vector
@@ -142,7 +142,6 @@ class ServerSideGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, H
         self.setParams(**kwargs)
 
     @keyword_only
-    @since("1.4.0")
     def setParams(self, vectorSize=100, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1,
                   seed=None, inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000,
                   batchSize=50, n=5, numParameterServers=5, parameterServerMasterHost="",
@@ -157,70 +156,60 @@ class ServerSideGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, H
         kwargs = self._input_kwargs
         return self._set(**kwargs)
 
-    @since("1.4.0")
     def setVectorSize(self, value):
         """
         Sets the value of :py:attr:`vectorSize`.
         """
         return self._set(vectorSize=value)
 
-    @since("1.4.0")
     def getVectorSize(self):
         """
         Gets the value of vectorSize or its default value.
         """
         return self.getOrDefault(self.vectorSize)
 
-    @since("1.4.0")
     def setNumPartitions(self, value):
         """
         Sets the value of :py:attr:`numPartitions`.
         """
         return self._set(numPartitions=value)
 
-    @since("1.4.0")
     def getNumPartitions(self):
         """
         Gets the value of numPartitions or its default value.
         """
         return self.getOrDefault(self.numPartitions)
 
-    @since("1.4.0")
     def setMinCount(self, value):
         """
         Sets the value of :py:attr:`minCount`.
         """
         return self._set(minCount=value)
 
-    @since("1.4.0")
     def getMinCount(self):
         """
         Gets the value of minCount or its default value.
         """
         return self.getOrDefault(self.minCount)
 
-    @since("2.0.0")
     def setWindowSize(self, value):
         """
         Sets the value of :py:attr:`windowSize`.
         """
         return self._set(windowSize=value)
 
-    @since("2.0.0")
     def getWindowSize(self):
         """
         Gets the value of windowSize or its default value.
         """
         return self.getOrDefault(self.windowSize)
 
-    @since("2.0.0")
     def setMaxSentenceLength(self, value):
         """
         Sets the value of :py:attr:`maxSentenceLength`.
         """
         return self._set(maxSentenceLength=value)
 
-    @since("2.0.0")
     def getMaxSentenceLength(self):
         """
         Gets the value of maxSentenceLength or its default value.
@@ -302,7 +291,6 @@ class ServerSideGlintWord2VecModel(JavaModel, JavaMLReadable, JavaMLWritable):
 
     __module__ = "pyspark.ml.feature"
 
-    @since("1.5.0")
     def getVectors(self):
         """
         Returns the vector representation of the words as a dataframe
@@ -310,7 +298,6 @@ class ServerSideGlintWord2VecModel(JavaModel, JavaMLReadable, JavaMLWritable):
         """
         return self._call_java("getVectors")
 
-    @since("1.5.0")
     def findSynonyms(self, word, num):
         """
         Find "num" number of words closest in similarity to "word".
@@ -322,7 +309,6 @@ class ServerSideGlintWord2VecModel(JavaModel, JavaMLReadable, JavaMLWritable):
             word = _convert_to_vector(word)
         return self._call_java("findSynonyms", word, num)
 
-    @since("2.3.0")
     def findSynonymsArray(self, word, num):
         """
         Find "num" number of words closest in similarity to "word".

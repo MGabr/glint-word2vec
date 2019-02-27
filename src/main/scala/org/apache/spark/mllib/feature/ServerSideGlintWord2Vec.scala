@@ -23,7 +23,6 @@ import breeze.linalg.convert
 import com.github.fommil.netlib.BLAS.{getInstance => blas}
 import glint.Client
 import glint.models.client.granular.GranularBigWord2VecMatrix
-import org.apache.spark.annotation.Since
 import org.apache.spark.api.java.JavaRDD
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.Logging
@@ -61,7 +60,6 @@ private case class VocabWordCn(var word: String, var cn: Int)
   * and
   * Distributed Representations of Words and Phrases and their Compositionality.
   */
-@Since("1.1.0")
 class ServerSideGlintWord2Vec extends Serializable with Logging {
 
   private var vectorSize = 100
@@ -87,7 +85,6 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     * Any sentence longer than this threshold will be divided into chunks of
     * up to `maxSentenceLength` size (default: 1000)
     */
-  @Since("2.0.0")
   def setMaxSentenceLength(maxSentenceLength: Int): this.type = {
     require(maxSentenceLength > 0,
       s"Maximum length of sentences must be positive but got ${maxSentenceLength}")
@@ -98,7 +95,6 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
   /**
     * Sets vector size (default: 100).
     */
-  @Since("1.1.0")
   def setVectorSize(vectorSize: Int): this.type = {
     require(vectorSize > 0,
       s"vector size must be positive but got ${vectorSize}")
@@ -109,7 +105,6 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
   /**
     * Sets initial learning rate (default: 0.025).
     */
-  @Since("1.1.0")
   def setLearningRate(learningRate: Double): this.type = {
     require(learningRate > 0,
       s"Initial learning rate must be positive but got ${learningRate}")
@@ -120,7 +115,6 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
   /**
     * Sets number of partitions (default: 1). Use a small number for accuracy.
     */
-  @Since("1.1.0")
   def setNumPartitions(numPartitions: Int): this.type = {
     require(numPartitions > 0,
       s"Number of partitions must be positive but got ${numPartitions}")
@@ -132,7 +126,6 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     * Sets number of iterations (default: 1), which should be smaller than or equal to number of
     * partitions.
     */
-  @Since("1.1.0")
   def setNumIterations(numIterations: Int): this.type = {
     require(numIterations >= 0,
       s"Number of iterations must be nonnegative but got ${numIterations}")
@@ -143,7 +136,6 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
   /**
     * Sets random seed (default: a random long integer).
     */
-  @Since("1.1.0")
   def setSeed(seed: Long): this.type = {
     this.seed = seed
     this
@@ -152,7 +144,6 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
   /**
     * Sets the window of words (default: 5)
     */
-  @Since("1.6.0")
   def setWindowSize(window: Int): this.type = {
     require(window > 0,
       s"Window of words must be positive but got ${window}")
@@ -166,7 +157,6 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     * Sets minCount, the minimum number of times a token must appear to be included in the word2vec
     * model's vocabulary (default: 5).
     */
-  @Since("1.3.0")
   def setMinCount(minCount: Int): this.type = {
     require(minCount >= 0,
       s"Minimum number of times must be nonnegative but got ${minCount}")
@@ -286,7 +276,6 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     *                each sentence is expressed as an iterable collection of words
     * @return a ServerSideGlintWord2VecModel
     */
-  @Since("1.1.0")
   def fit[S <: Iterable[String]](dataset: RDD[S]): ServerSideGlintWord2VecModel = {
 
     learnVocab(dataset)
@@ -409,7 +398,6 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     * @param dataset a JavaRDD of words
     * @return a ServerSideGlintWord2VecModel
     */
-  @Since("1.1.0")
   def fit[S <: JavaIterable[String]](dataset: JavaRDD[S]): ServerSideGlintWord2VecModel = {
     fit(dataset.rdd.map(_.asScala))
   }
@@ -424,7 +412,6 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
   * @param client to the parameter servers
   * @param ec the implicit execution context in which to execute the parameter server requests
   */
-@Since("1.1.0")
 class ServerSideGlintWord2VecModel private[spark](private[spark] val wordIndex: Map[String, Int],
                                                   private[spark] val matrix: GranularBigWord2VecMatrix,
                                                   @transient private[spark] val client: Client)
@@ -458,7 +445,6 @@ class ServerSideGlintWord2VecModel private[spark](private[spark] val wordIndex: 
   @transient
   implicit private lazy val ec: ExecutionContext = ExecutionContext.Implicits.global
 
-  @Since("1.4.0")
   override def save(sc: SparkContext, path: String): Unit = {
     val savedFuture = matrix.save(path, sc.hadoopConfiguration)
     val wordArrayPath = path + "/words"
@@ -477,7 +463,6 @@ class ServerSideGlintWord2VecModel private[spark](private[spark] val wordIndex: 
     * @param word a word
     * @return vector representation of word
     */
-  @Since("1.1.0")
   def transform(word: String): Vector = {
     wordIndex.get(word) match {
       case Some(ind) =>
@@ -521,7 +506,6 @@ class ServerSideGlintWord2VecModel private[spark](private[spark] val wordIndex: 
     * @param num number of synonyms to find
     * @return array of (word, cosineSimilarity)
     */
-  @Since("1.1.0")
   def findSynonyms(word: String, num: Int): Array[(String, Double)] = {
     val vector = transform(word)
     findSynonyms(vector, num, Some(word))
@@ -538,7 +522,6 @@ class ServerSideGlintWord2VecModel private[spark](private[spark] val wordIndex: 
     * @param num number of synonyms to find
     * @return array of (word, cosineSimilarity)
     */
-  @Since("1.1.0")
   def findSynonyms(vector: Vector, num: Int): Array[(String, Double)] = {
     findSynonyms(vector, num, None)
   }
@@ -607,7 +590,6 @@ class ServerSideGlintWord2VecModel private[spark](private[spark] val wordIndex: 
     * Note that this implementation pulls the whole distributed matrix to the client and might therefore not work with
     * large matrices which do not fit into the client's memory.
     */
-  @Since("1.2.0")
   def getVectors: Map[String, Array[Float]] = {
     val vectors =  Await.result(matrix.pull((0L until numWords).toArray), 3 minutes)
     wordIndex.map { case (word, ind) => (word, vectors(ind).toArray) }
@@ -640,13 +622,11 @@ class ServerSideGlintWord2VecModel private[spark](private[spark] val wordIndex: 
 
 }
 
-@Since("1.4.0")
 object ServerSideGlintWord2VecModel extends Loader[ServerSideGlintWord2VecModel] {
 
   private val maximumMessageSize = 10000
   private val host = ""
 
-  @Since("1.4.0")
   override def load(sc: SparkContext, path: String): ServerSideGlintWord2VecModel = {
     val wordArrayPath = path + "/words"
     val wordIndex = sc.textFile(wordArrayPath, minPartitions = 1).collect().zipWithIndex.toMap

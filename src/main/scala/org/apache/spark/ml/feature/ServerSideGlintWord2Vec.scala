@@ -18,7 +18,6 @@
 package org.apache.spark.ml.feature
 
 import breeze.linalg.convert
-import org.apache.spark.annotation.Since
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.ml.linalg.{Vector, VectorUDT, Vectors}
 import org.apache.spark.ml.param._
@@ -180,52 +179,39 @@ private[feature] trait ServerSideGlintWord2VecBase extends Params
   * ServerSideGlintWord2Vec trains a model of `Map(String, Vector)`, i.e. transforms a word into a code for further
   * natural language processing or machine learning process.
   */
-@Since("1.4.0")
-final class ServerSideGlintWord2Vec @Since("1.4.0")(
-                                       @Since("1.4.0") override val uid: String)
+final class ServerSideGlintWord2Vec (override val uid: String)
   extends Estimator[ServerSideGlintWord2VecModel] with ServerSideGlintWord2VecBase with DefaultParamsWritable {
 
-  @Since("1.4.0")
   def this() = this(Identifiable.randomUID("gw2v"))
 
   /** @group setParam */
-  @Since("1.4.0")
   def setInputCol(value: String): this.type = set(inputCol, value)
 
   /** @group setParam */
-  @Since("1.4.0")
   def setOutputCol(value: String): this.type = set(outputCol, value)
 
   /** @group setParam */
-  @Since("1.4.0")
   def setVectorSize(value: Int): this.type = set(vectorSize, value)
 
   /** @group expertSetParam */
-  @Since("1.6.0")
   def setWindowSize(value: Int): this.type = set(windowSize, value)
 
   /** @group setParam */
-  @Since("1.4.0")
   def setStepSize(value: Double): this.type = set(stepSize, value)
 
   /** @group setParam */
-  @Since("1.4.0")
   def setNumPartitions(value: Int): this.type = set(numPartitions, value)
 
   /** @group setParam */
-  @Since("1.4.0")
   def setMaxIter(value: Int): this.type = set(maxIter, value)
 
   /** @group setParam */
-  @Since("1.4.0")
   def setSeed(value: Long): this.type = set(seed, value)
 
   /** @group setParam */
-  @Since("1.4.0")
   def setMinCount(value: Int): this.type = set(minCount, value)
 
   /** @group setParam */
-  @Since("2.0.0")
   def setMaxSentenceLength(value: Int): this.type = set(maxSentenceLength, value)
 
   /** @group setParam */
@@ -242,7 +228,6 @@ final class ServerSideGlintWord2Vec @Since("1.4.0")(
 
   def setUnigramTableSize(value: Int): this.type = set(unigramTableSize, value)
 
-  @Since("2.0.0")
   override def fit(dataset: Dataset[_]): ServerSideGlintWord2VecModel = {
     transformSchema(dataset.schema, logging = true)
     val input = dataset.select($(inputCol)).rdd.map(_.getAs[Seq[String]](0))
@@ -264,29 +249,23 @@ final class ServerSideGlintWord2Vec @Since("1.4.0")(
     copyValues(new ServerSideGlintWord2VecModel(uid, wordVectors).setParent(this))
   }
 
-  @Since("1.4.0")
   override def transformSchema(schema: StructType): StructType = {
     validateAndTransformSchema(schema)
   }
 
-  @Since("1.4.1")
   override def copy(extra: ParamMap): ServerSideGlintWord2Vec = defaultCopy(extra)
 }
 
-@Since("1.6.0")
 object ServerSideGlintWord2Vec extends DefaultParamsReadable[ServerSideGlintWord2Vec] {
 
-  @Since("1.6.0")
   override def load(path: String): ServerSideGlintWord2Vec = super.load(path)
 }
 
 /**
   * Model fitted by [[ServerSideGlintWord2Vec]].
   */
-@Since("1.4.0")
-class ServerSideGlintWord2VecModel private[ml](
-                                  @Since("1.4.0") override val uid: String,
-                                  @transient private val mllibModel: MLlibServerSideGlintWord2VecModel)
+class ServerSideGlintWord2VecModel private[ml](override val uid: String,
+                                               @transient private val mllibModel: MLlibServerSideGlintWord2VecModel)
   extends Model[ServerSideGlintWord2VecModel] with ServerSideGlintWord2VecBase with MLWritable {
 
   import ServerSideGlintWord2VecModel._
@@ -305,7 +284,6 @@ class ServerSideGlintWord2VecModel private[ml](
     * Note that this implementation pulls the whole distributed matrix to the client and might therefore not work with
     * large matrices which do not fit into the client's memory.
     */
-  @Since("1.5.0")
   @transient lazy val getVectors: DataFrame = {
     val spark = SparkSession.builder().getOrCreate()
     val wordVec = mllibModel.getVectors.mapValues(vec => Vectors.dense(vec.map(_.toDouble)))
@@ -321,7 +299,6 @@ class ServerSideGlintWord2VecModel private[ml](
     * @return a dataframe with columns "word" and "similarity" of the word and the cosine
     * similarities between the synonyms and the given word.
     */
-  @Since("1.5.0")
   def findSynonyms(word: String, num: Int): DataFrame = {
     val spark = SparkSession.builder().getOrCreate()
     spark.createDataFrame(findSynonymsArray(word, num)).toDF("word", "similarity")
@@ -337,7 +314,6 @@ class ServerSideGlintWord2VecModel private[ml](
     * @return a dataframe with columns "word" and "similarity" of the word and the cosine
     * similarities between the synonyms and the given word vector.
     */
-  @Since("2.0.0")
   def findSynonyms(vec: Vector, num: Int): DataFrame = {
     val spark = SparkSession.builder().getOrCreate()
     spark.createDataFrame(findSynonymsArray(vec, num)).toDF("word", "similarity")
@@ -353,7 +329,6 @@ class ServerSideGlintWord2VecModel private[ml](
     * @return an array of the words and the cosine similarities between the synonyms given
     * word vector.
     */
-  @Since("2.2.0")
   def findSynonymsArray(vec: Vector, num: Int): Array[(String, Double)] = {
     mllibModel.findSynonyms(vec, num)
   }
@@ -367,24 +342,20 @@ class ServerSideGlintWord2VecModel private[ml](
     * @return an array of the words and the cosine similarities between the synonyms given
     * word vector.
     */
-  @Since("2.2.0")
   def findSynonymsArray(word: String, num: Int): Array[(String, Double)] = {
     mllibModel.findSynonyms(word, num)
   }
 
   /** @group setParam */
-  @Since("1.4.0")
   def setInputCol(value: String): this.type = set(inputCol, value)
 
   /** @group setParam */
-  @Since("1.4.0")
   def setOutputCol(value: String): this.type = set(outputCol, value)
 
   /**
     * Transform a sentence column to a vector column to represent the whole sentence. The transform
     * is performed by averaging all word vectors it contains.
     */
-  @Since("2.0.0")
   override def transform(dataset: Dataset[_]): DataFrame = {
     val transformedSchema = transformSchema(dataset.schema, logging = true)
 
@@ -415,18 +386,15 @@ class ServerSideGlintWord2VecModel private[ml](
     }(RowEncoder(transformedSchema))
   }
 
-  @Since("1.4.0")
   override def transformSchema(schema: StructType): StructType = {
     validateAndTransformSchema(schema)
   }
 
-  @Since("1.4.1")
   override def copy(extra: ParamMap): ServerSideGlintWord2VecModel = {
     val copied = new ServerSideGlintWord2VecModel(uid, mllibModel)
     copyValues(copied, extra).setParent(parent)
   }
 
-  @Since("1.6.0")
   override def write: MLWriter = new ServerSideGlintWord2VecModelWriter(this)
 
   /**
@@ -451,7 +419,6 @@ class ServerSideGlintWord2VecModel private[ml](
   }
 }
 
-@Since("1.6.0")
 object ServerSideGlintWord2VecModel extends MLReadable[ServerSideGlintWord2VecModel] {
 
   private[ServerSideGlintWord2VecModel]
@@ -476,10 +443,8 @@ object ServerSideGlintWord2VecModel extends MLReadable[ServerSideGlintWord2VecMo
     }
   }
 
-  @Since("1.6.0")
   override def read: MLReader[ServerSideGlintWord2VecModel] = new ServerSideGlintWord2VecModelReader
 
-  @Since("1.6.0")
   override def load(path: String): ServerSideGlintWord2VecModel = super.load(path)
 }
 
