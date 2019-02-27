@@ -17,20 +17,22 @@
 
 package org.apache.spark.ml.feature
 
-import org.apache.hadoop.fs.Path
-
+import breeze.linalg.convert
 import org.apache.spark.annotation.Since
-import org.apache.spark.ml.{Estimator, Model}
-import org.apache.spark.ml.linalg.{BLAS, Vector, Vectors, VectorUDT}
+import org.apache.spark.broadcast.Broadcast
+import org.apache.spark.ml.linalg.{Vector, VectorUDT, Vectors}
 import org.apache.spark.ml.param._
 import org.apache.spark.ml.param.shared._
 import org.apache.spark.ml.util._
+import org.apache.spark.ml.{Estimator, Model}
 import org.apache.spark.mllib.feature.{ServerSideGlintWord2Vec => MLlibServerSideGlintWord2Vec, ServerSideGlintWord2VecModel => MLlibServerSideGlintWord2VecModel}
 import org.apache.spark.mllib.linalg.VectorImplicits._
-import org.apache.spark.sql.{DataFrame, Dataset, SparkSession}
-import org.apache.spark.sql.functions._
+import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.types._
-import org.apache.spark.util.{Utils, VersionUtils}
+import org.apache.spark.sql.{DataFrame, Dataset, Row, SparkSession}
+
+import scala.concurrent.duration._
+import scala.concurrent.{Await, ExecutionContext}
 
 /**
   * Params for [[ServerSideGlintWord2Vec]] and [[ServerSideGlintWord2VecModel]].
@@ -107,6 +109,7 @@ private[feature] trait ServerSideGlintWord2VecBase extends Params
 
   /**
     * The mini batch size
+    * Default: 50
     */
   final val batchSize = new IntParam(this, "batchSize", "the mini batch size")
   setDefault(batchSize -> 50)
@@ -116,6 +119,7 @@ private[feature] trait ServerSideGlintWord2VecBase extends Params
 
   /**
     * The number of random negative examples
+    * Default: 5
     */
   final val n = new IntParam(this, "n", "the number of random negative examples")
   setDefault(n -> 5)
@@ -125,6 +129,7 @@ private[feature] trait ServerSideGlintWord2VecBase extends Params
 
   /**
     * The number of parameter servers to create
+    * Default: 5
     */
   final val numParameterServers = new IntParam(this, "numParameterServers",
     "the number of parameter servers to create")
@@ -136,6 +141,7 @@ private[feature] trait ServerSideGlintWord2VecBase extends Params
   /**
     * The host name of the master of the parameter servers.
     * Set to "" for automatic detection which may not always work and "127.0.0.1" for local testing
+    * Default: ""
     */
   final val parameterServerMasterHost = new Param[String](this, "parameterServerMasterHost",
     "the host name of the master of the parameter servers. Set to \"\" for automatic detection which may not " +
@@ -148,6 +154,7 @@ private[feature] trait ServerSideGlintWord2VecBase extends Params
   /**
     * The size of the unigram table.
     * Only needs to be changed to a lower value if there is not enough memory for local testing.
+    * Default: 100.000.000
     */
   final val unigramTableSize = new IntParam(this, "unigramTableSize", "the size of the " +
     "unigram table. Only needs to be changed to a lower value if there is not enough memory for local testing")
@@ -279,10 +286,17 @@ object ServerSideGlintWord2Vec extends DefaultParamsReadable[ServerSideGlintWord
 @Since("1.4.0")
 class ServerSideGlintWord2VecModel private[ml](
                                   @Since("1.4.0") override val uid: String,
-                                  @transient private val wordVectors: MLlibServerSideGlintWord2VecModel)
+                                  @transient private val mllibModel: MLlibServerSideGlintWord2VecModel)
   extends Model[ServerSideGlintWord2VecModel] with ServerSideGlintWord2VecBase with MLWritable {
 
   import ServerSideGlintWord2VecModel._
+
+  /**
+    * The number of words in the vocabulary
+    */
+  val numWords: Int = mllibModel.numWords
+
+  private var bcWordIndexOpt: Option[Broadcast[Map[String, Int]]] = None
 
   /**
     * Returns a dataframe with two fields, "word" and "vector", with "word" being a String and
@@ -291,13 +305,14 @@ class ServerSideGlintWord2VecModel private[ml](
   @Since("1.5.0")
   @transient lazy val getVectors: DataFrame = {
     val spark = SparkSession.builder().getOrCreate()
-    val wordVec = wordVectors.getVectors.mapValues(vec => Vectors.dense(vec.map(_.toDouble)))
+    val wordVec = mllibModel.getVectors.mapValues(vec => Vectors.dense(vec.map(_.toDouble)))
     spark.createDataFrame(wordVec.toSeq).toDF("word", "vector")
   }
 
   /**
     * Find "num" number of words closest in similarity to the given word, not
     * including the word itself.
+    *
     * @return a dataframe with columns "word" and "similarity" of the word and the cosine
     * similarities between the synonyms and the given word.
     */
@@ -311,6 +326,7 @@ class ServerSideGlintWord2VecModel private[ml](
     * Find "num" number of words whose vector representation is most similar to the supplied vector.
     * If the supplied vector is the vector representation of a word in the model's vocabulary,
     * that word will be in the results.
+    *
     * @return a dataframe with columns "word" and "similarity" of the word and the cosine
     * similarities between the synonyms and the given word vector.
     */
@@ -324,23 +340,25 @@ class ServerSideGlintWord2VecModel private[ml](
     * Find "num" number of words whose vector representation is most similar to the supplied vector.
     * If the supplied vector is the vector representation of a word in the model's vocabulary,
     * that word will be in the results.
+    *
     * @return an array of the words and the cosine similarities between the synonyms given
     * word vector.
     */
   @Since("2.2.0")
   def findSynonymsArray(vec: Vector, num: Int): Array[(String, Double)] = {
-    wordVectors.findSynonyms(vec, num)
+    mllibModel.findSynonyms(vec, num)
   }
 
   /**
     * Find "num" number of words closest in similarity to the given word, not
     * including the word itself.
+    *
     * @return an array of the words and the cosine similarities between the synonyms given
     * word vector.
     */
   @Since("2.2.0")
   def findSynonymsArray(word: String, num: Int): Array[(String, Double)] = {
-    wordVectors.findSynonyms(word, num)
+    mllibModel.findSynonyms(word, num)
   }
 
   /** @group setParam */
@@ -357,27 +375,33 @@ class ServerSideGlintWord2VecModel private[ml](
     */
   @Since("2.0.0")
   override def transform(dataset: Dataset[_]): DataFrame = {
-    transformSchema(dataset.schema, logging = true)
-    val vectors = wordVectors.getVectors
-      .mapValues(vv => Vectors.dense(vv.map(_.toDouble)))
-      .map(identity) // mapValues doesn't return a serializable map (SI-7005)
-    val bVectors = dataset.sparkSession.sparkContext.broadcast(vectors)
-    val d = $(vectorSize)
-    val word2Vec = udf { sentence: Seq[String] =>
-      if (sentence.isEmpty) {
-        Vectors.sparse(d, Array.empty[Int], Array.empty[Double])
-      } else {
-        val sum = Vectors.zeros(d)
-        sentence.foreach { word =>
-          bVectors.value.get(word).foreach { v =>
-            BLAS.axpy(1.0, v, sum)
-          }
-        }
-        BLAS.scal(1.0 / sentence.size, sum)
-        sum
-      }
+    val transformedSchema = transformSchema(dataset.schema, logging = true)
+
+    val bcWordIndex = bcWordIndexOpt.getOrElse {
+      val bcWordIndex = SparkSession.builder().getOrCreate().sparkContext.broadcast(mllibModel.wordIndex)
+      bcWordIndexOpt = Some(bcWordIndex)
+      bcWordIndex
     }
-    dataset.withColumn($(outputCol), word2Vec(col($(inputCol))))
+    val matrix = mllibModel.matrix
+
+    // use mapPartitions instead of withColumn and udf to prevent a blocking parameter server request per sentence
+    dataset.toDF().mapPartitions { rowIter =>
+      @transient
+      implicit val ec = ExecutionContext.Implicits.global
+      val wordIndex = bcWordIndex.value
+
+      // make requests to parameter server with 10.000 sentence batches
+      val rowSlidesIter = rowIter.sliding(10000, 10000).withPartial(true)
+      val vectors = rowSlidesIter.flatMap { rows =>
+        val sentences = rows.toArray.map(_.getAs[Seq[String]]($(inputCol)).toArray)
+        val sentenceIndices = sentences.map(_.flatMap(wordIndex.get).map(_.toLong))
+        val averageVecs = Await.result(matrix.pullAverage(sentenceIndices), 1 minute)
+        rows.zip(averageVecs).map { case (row, vec) =>
+          Row.fromSeq(row.toSeq :+ Vectors.fromBreeze(convert(vec, Double)))
+        }
+      }
+      vectors
+    }(RowEncoder(transformedSchema))
   }
 
   @Since("1.4.0")
@@ -387,67 +411,32 @@ class ServerSideGlintWord2VecModel private[ml](
 
   @Since("1.4.1")
   override def copy(extra: ParamMap): ServerSideGlintWord2VecModel = {
-    val copied = new ServerSideGlintWord2VecModel(uid, wordVectors)
+    val copied = new ServerSideGlintWord2VecModel(uid, mllibModel)
     copyValues(copied, extra).setParent(parent)
   }
 
   @Since("1.6.0")
   override def write: MLWriter = new ServerSideGlintWord2VecModelWriter(this)
+
+  /**
+    * Stops the model and releases the underlying distributed matrix and broadcasts.
+    * This model can't be used anymore afterwards.
+    */
+  def stop(): Unit = {
+    bcWordIndexOpt.foreach(_.destroy())
+    mllibModel.stop(SparkSession.builder().getOrCreate().sparkContext)
+  }
 }
 
 @Since("1.6.0")
 object ServerSideGlintWord2VecModel extends MLReadable[ServerSideGlintWord2VecModel] {
-
-  private case class Data(word: String, vector: Array[Float])
 
   private[ServerSideGlintWord2VecModel]
   class ServerSideGlintWord2VecModelWriter(instance: ServerSideGlintWord2VecModel) extends MLWriter {
 
     override protected def saveImpl(path: String): Unit = {
       DefaultParamsWriter.saveMetadata(instance, path, sc)
-
-      val wordVectors = instance.wordVectors.getVectors
-      val dataPath = new Path(path, "data").toString
-      val bufferSizeInBytes = Utils.byteStringAsBytes(
-        sc.conf.get("spark.kryoserializer.buffer.max", "64m"))
-      val numPartitions = ServerSideGlintWord2VecModelWriter.calculateNumberOfPartitions(
-        bufferSizeInBytes, instance.wordVectors.wordIndex.size, instance.getVectorSize)
-      val spark = sparkSession
-      import spark.implicits._
-      spark.createDataset[(String, Array[Float])](wordVectors.toSeq)
-        .repartition(numPartitions)
-        .map { case (word, vector) => Data(word, vector) }
-        .toDF()
-        .write
-        .parquet(dataPath)
-    }
-  }
-
-  private[feature]
-  object ServerSideGlintWord2VecModelWriter {
-    /**
-      * Calculate the number of partitions to use in saving the model.
-      * [SPARK-11994] - We want to partition the model in partitions smaller than
-      * spark.kryoserializer.buffer.max
-      * @param bufferSizeInBytes  Set to spark.kryoserializer.buffer.max
-      * @param numWords  Vocab size
-      * @param vectorSize  Vector length for each word
-      */
-    def calculateNumberOfPartitions(
-                                     bufferSizeInBytes: Long,
-                                     numWords: Int,
-                                     vectorSize: Int): Int = {
-      val floatSize = 4L  // Use Long to help avoid overflow
-      val averageWordSize = 15
-      // Calculate the approximate size of the model.
-      // Assuming an average word size of 15 bytes, the formula is:
-      // (floatSize * vectorSize + 15) * numWords
-      val approximateSizeInBytes = (floatSize * vectorSize + averageWordSize) * numWords
-      val numPartitions = (approximateSizeInBytes / bufferSizeInBytes) + 1
-      require(numPartitions < 10e8, s"ServerSideGlintWord2VecModel calculated that it needs $numPartitions " +
-        s"partitions to save this model, which is too large.  Try increasing " +
-        s"spark.kryoserializer.buffer.max so that ServerSideGlintWord2VecModel can use fewer partitions.")
-      numPartitions.toInt
+      instance.mllibModel.save(sparkSession.sparkContext, path)
     }
   }
 
@@ -456,29 +445,8 @@ object ServerSideGlintWord2VecModel extends MLReadable[ServerSideGlintWord2VecMo
     private val className = classOf[ServerSideGlintWord2VecModel].getName
 
     override def load(path: String): ServerSideGlintWord2VecModel = {
-      val spark = sparkSession
-      import spark.implicits._
-
       val metadata = DefaultParamsReader.loadMetadata(path, sc, className)
-      val (major, minor) = VersionUtils.majorMinorVersion(metadata.sparkVersion)
-
-      val dataPath = new Path(path, "data").toString
-
-      val oldModel = if (major < 2 || (major == 2 && minor < 2)) {
-        val data = spark.read.parquet(dataPath)
-          .select("wordIndex", "wordVectors")
-          .head()
-        val wordIndex = data.getAs[Map[String, Int]](0)
-        val wordVectors = data.getAs[Seq[Float]](1).toArray
-        new MLlibServerSideGlintWord2VecModel(wordIndex, wordVectors)
-      } else {
-        val wordVectorsMap = spark.read.parquet(dataPath).as[Data]
-          .collect()
-          .map(wordVector => (wordVector.word, wordVector.vector))
-          .toMap
-        new MLlibServerSideGlintWord2VecModel(wordVectorsMap)
-      }
-
+      val oldModel = MLlibServerSideGlintWord2VecModel.load(sparkSession.sparkContext, path)
       val model = new ServerSideGlintWord2VecModel(metadata.uid, oldModel)
       DefaultParamsReader.getAndSetParams(model, metadata)
       model

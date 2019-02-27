@@ -19,15 +19,10 @@ package org.apache.spark.mllib.feature
 
 import java.lang.{Iterable => JavaIterable}
 
-import scala.collection.JavaConverters._
-import scala.collection.mutable
+import breeze.linalg.convert
 import com.github.fommil.netlib.BLAS.{getInstance => blas}
 import glint.Client
 import glint.models.client.granular.GranularBigWord2VecMatrix
-import org.json4s.DefaultFormats
-import org.json4s.JsonDSL._
-import org.json4s.jackson.JsonMethods._
-import org.apache.spark.{SparkContext, TaskContext}
 import org.apache.spark.annotation.Since
 import org.apache.spark.api.java.JavaRDD
 import org.apache.spark.broadcast.Broadcast
@@ -35,13 +30,14 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.mllib.linalg.{Vector, Vectors}
 import org.apache.spark.mllib.util.{Loader, Saveable}
 import org.apache.spark.rdd._
-import org.apache.spark.sql.SparkSession
-import org.apache.spark.util.BoundedPriorityQueue
-import org.apache.spark.util.Utils
+import org.apache.spark.util.{BoundedPriorityQueue, Utils}
 import org.apache.spark.util.random.XORShiftRandom
+import org.apache.spark.{SparkContext, TaskContext}
 
-import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.collection.JavaConverters._
+import scala.collection.mutable
 import scala.concurrent.duration._
+import scala.concurrent.{Await, ExecutionContext, Future}
 
 /**
   *  Entry in vocabulary
@@ -402,18 +398,10 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
       }
     }
 
-    // pull all word vectors
-    // this requires enough memory locally, but using a model based on a BigMatrix is currently not supported
-    val pullRows = (for (i <- 0L until vocabSize) yield Array.fill(vectorSize)(i)).flatten.toArray
-    val pullCols = Array.fill(vocabSize)((0L until vectorSize).toArray).flatten
-    val pulledWordVectors = Await.result(syn.pull(pullRows, pullCols), 1 minute)
-
-    client.terminateOnSpark(sc)
-
     newSentences.unpersist()
 
     val wordArray = vocab.map(_.word)
-    new ServerSideGlintWord2VecModel(wordArray.zipWithIndex.toMap, pulledWordVectors)
+    new ServerSideGlintWord2VecModel(wordArray.zipWithIndex.toMap, syn, client)
   }
 
   /**
@@ -430,54 +418,62 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
 
 /**
   * ServerSideGlintWord2Vec model
-  * @param wordIndex maps each word to an index, which can retrieve the corresponding
-  *                  vector from wordVectors
-  * @param wordVectors array of length numWords * vectorSize, vector corresponding
-  *                    to the word mapped with index i can be retrieved by the slice
-  *                    (i * vectorSize, i * vectorSize + vectorSize)
+  *
+  * @param wordIndex maps each word to an index, which can retrieve the corresponding vector from the word vector matrix
+  * @param matrix holding the word vector parameter servers
+  * @param client to the parameter servers
+  * @param ec the implicit execution context in which to execute the parameter server requests
   */
 @Since("1.1.0")
-class ServerSideGlintWord2VecModel private[spark](
-                                               private[spark] val wordIndex: Map[String, Int],
-                                               private[spark] val wordVectors: Array[Float]) extends Serializable with Saveable {
+class ServerSideGlintWord2VecModel private[spark](private[spark] val wordIndex: Map[String, Int],
+                                                  private[spark] val matrix: GranularBigWord2VecMatrix,
+                                                  @transient private[spark] val client: Client)
+  extends Serializable with Saveable {
 
-  private val numWords = wordIndex.size
-  // vectorSize: Dimension of each word's vector.
-  private val vectorSize = wordVectors.length / numWords
+  /**
+    * The number of words in the vocabulary
+    */
+  val numWords: Int = wordIndex.size
 
-  // wordList: Ordered list of words obtained from wordIndex.
+  /**
+    * The dimension of each word's vector
+    */
+  val vectorSize: Int = matrix.cols.toInt
+
+  /**
+    * Ordered list of words obtained from wordIndex
+    */
   private val wordList: Array[String] = {
     val (wl, _) = wordIndex.toSeq.sortBy(_._2).unzip
     wl.toArray
   }
 
-  // wordVecNorms: Array of length numWords, each value being the Euclidean norm
-  //               of the wordVector.
-  private val wordVecNorms: Array[Float] = {
-    val wordVecNorms = new Array[Float](numWords)
-    var i = 0
-    while (i < numWords) {
-      val vec = wordVectors.slice(i * vectorSize, i * vectorSize + vectorSize)
-      wordVecNorms(i) = blas.snrm2(vectorSize, vec, 1)
-      i += 1
-    }
-    wordVecNorms
-  }
-
-  @Since("1.5.0")
-  def this(model: Map[String, Array[Float]]) = {
-    this(ServerSideGlintWord2VecModel.buildWordIndex(model), ServerSideGlintWord2VecModel.buildWordVectors(model))
-  }
+  /**
+    * Array of length numWords, each value being the Euclidean norm of the wordVector
+    */
+  private val wordVecNorms: Array[Float] = Await.result(matrix.norms(), 1 minute)
 
   override protected def formatVersion = "1.0"
 
+  @transient
+  implicit private lazy val ec: ExecutionContext = ExecutionContext.Implicits.global
+
   @Since("1.4.0")
-  def save(sc: SparkContext, path: String): Unit = {
-    ServerSideGlintWord2VecModel.SaveLoadV1_0.save(sc, path, getVectors)
+  override def save(sc: SparkContext, path: String): Unit = {
+    val savedFuture = matrix.save(path, sc.hadoopConfiguration)
+    val wordArrayPath = path + "/words"
+    sc.parallelize(wordList, 1).saveAsTextFile(wordArrayPath)
+    Await.ready(savedFuture, 3 minutes)
   }
 
   /**
-    * Transforms a word to its vector representation
+    * Transforms a word to its vector representation.
+    *
+    * Note that this implementation makes a blocking call to the underlying distributed matrix.
+    * In most cases you will want to use the more efficient
+    * [[org.apache.spark.mllib.feature.ServerSideGlintWord2VecModel.transform(words* transform]]
+    * to not block for each word but for a batch of words.
+    *
     * @param word a word
     * @return vector representation of word
     */
@@ -485,15 +481,42 @@ class ServerSideGlintWord2VecModel private[spark](
   def transform(word: String): Vector = {
     wordIndex.get(word) match {
       case Some(ind) =>
-        val vec = wordVectors.slice(ind * vectorSize, ind * vectorSize + vectorSize)
-        Vectors.dense(vec.map(_.toDouble))
+        val vec = Await.result(matrix.pull(Array(ind)), 1 minute)(0)
+        Vectors.fromBreeze(convert(vec, Double))
       case None =>
         throw new IllegalStateException(s"$word not in vocabulary")
     }
   }
 
   /**
+    * Transforms a set of word to their vector representations.
+    *
+    * Note that this implementation makes a blocking call to the underlying distributed matrix.
+    *
+    * @param words a set of words
+    * @return vector representations of the words
+    */
+  def transform(words: Iterator[String]): Iterator[Vector] = {
+    // make requests to parameter server with 10.000 word batches
+    val wordSlidesIter = words.sliding(10000, 10000).withPartial(true)
+    val vectors = wordSlidesIter.flatMap { slideWords =>
+      val slideWordIndices = slideWords.map { word =>
+        wordIndex.get(word) match {
+          case Some(index) => index
+          case None => throw new IllegalStateException(s"$word not in vocabulary")
+        }
+      }.map(_.toLong).toArray
+      val vecs = Await.result(matrix.pull(slideWordIndices), 1 minute)
+      vecs.map(vec => Vectors.fromBreeze(convert(vec, Double)))
+    }
+    vectors
+  }
+
+  /**
     * Find synonyms of a word; do not include the word itself in results.
+    *
+    * Note that this implementation makes a blocking call to the underlying distributed matrix.
+    *
     * @param word a word
     * @param num number of synonyms to find
     * @return array of (word, cosineSimilarity)
@@ -508,6 +531,9 @@ class ServerSideGlintWord2VecModel private[spark](
     * Find synonyms of the vector representation of a word, possibly
     * including any words in the model vocabulary whose vector respresentation
     * is the supplied vector.
+    *
+    * Note that this implementation makes a blocking call to the underlying distributed matrix.
+    *
     * @param vector vector representation of a word
     * @param num number of synonyms to find
     * @return array of (word, cosineSimilarity)
@@ -520,6 +546,7 @@ class ServerSideGlintWord2VecModel private[spark](
   /**
     * Find synonyms of the vector representation of a word, rejecting
     * words identical to the value of wordOpt, if one is supplied.
+    *
     * @param vector vector representation of a word
     * @param num number of synonyms to find
     * @param wordOpt optionally, a word to reject from the results list
@@ -532,7 +559,6 @@ class ServerSideGlintWord2VecModel private[spark](
     require(num > 0, "Number of similar words should > 0")
 
     val fVector = vector.toArray.map(_.toFloat)
-    val cosineVec = new Array[Float](numWords)
     val alpha: Float = 1
     val beta: Float = 0
     // Normalize input vector before blas.sgemv to avoid Inf value
@@ -540,8 +566,8 @@ class ServerSideGlintWord2VecModel private[spark](
     if (vecNorm != 0.0f) {
       blas.sscal(vectorSize, 1 / vecNorm, fVector, 0, 1)
     }
-    blas.sgemv(
-      "T", vectorSize, numWords, alpha, wordVectors, vectorSize, fVector, 1, beta, cosineVec, 1)
+
+    val cosineVec = Await.result(matrix.multiply(fVector), 1 minute)
 
     var i = 0
     while (i < numWords) {
@@ -577,12 +603,24 @@ class ServerSideGlintWord2VecModel private[spark](
 
   /**
     * Returns a map of words to their vector representations.
+    *
+    * Note that this implementation pulls the whole distributed matrix to the client and might therefore not work with
+    * large matrices which do not fit into the client's memory.
     */
   @Since("1.2.0")
   def getVectors: Map[String, Array[Float]] = {
-    wordIndex.map { case (word, ind) =>
-      (word, wordVectors.slice(vectorSize * ind, vectorSize * ind + vectorSize))
-    }
+    val vectors =  Await.result(matrix.pull((0L until numWords).toArray), 3 minutes)
+    wordIndex.map { case (word, ind) => (word, vectors(ind).toArray) }
+  }
+
+  /**
+    * Stops the model and releases the underlying distributed matrix and broadcasts.
+    * This model can't be used anymore afterwards.
+    *
+    * @param sc The Spark context
+    */
+  def stop(sc: SparkContext): Unit = {
+    client.terminateOnSpark(sc)
   }
 
 }
@@ -590,90 +628,15 @@ class ServerSideGlintWord2VecModel private[spark](
 @Since("1.4.0")
 object ServerSideGlintWord2VecModel extends Loader[ServerSideGlintWord2VecModel] {
 
-  private def buildWordIndex(model: Map[String, Array[Float]]): Map[String, Int] = {
-    model.keys.zipWithIndex.toMap
-  }
-
-  private def buildWordVectors(model: Map[String, Array[Float]]): Array[Float] = {
-    require(model.nonEmpty, "Word2VecMap should be non-empty")
-    val (vectorSize, numWords) = (model.head._2.length, model.size)
-    val wordList = model.keys.toArray
-    val wordVectors = new Array[Float](vectorSize * numWords)
-    var i = 0
-    while (i < numWords) {
-      Array.copy(model(wordList(i)), 0, wordVectors, i * vectorSize, vectorSize)
-      i += 1
-    }
-    wordVectors
-  }
-
-  private object SaveLoadV1_0 {
-
-    val formatVersionV1_0 = "1.0"
-
-    val classNameV1_0 = "org.apache.spark.mllib.feature.ServerSideGlintWord2VecModel"
-
-    case class Data(word: String, vector: Array[Float])
-
-    def load(sc: SparkContext, path: String): ServerSideGlintWord2VecModel = {
-      val spark = SparkSession.builder().sparkContext(sc).getOrCreate()
-      val dataFrame = spark.read.parquet(Loader.dataPath(path))
-      // Check schema explicitly since erasure makes it hard to use match-case for checking.
-      Loader.checkSchema[Data](dataFrame.schema)
-
-      val dataArray = dataFrame.select("word", "vector").collect()
-      val word2VecMap = dataArray.map(i => (i.getString(0), i.getSeq[Float](1).toArray)).toMap
-      new ServerSideGlintWord2VecModel(word2VecMap)
-    }
-
-    def save(sc: SparkContext, path: String, model: Map[String, Array[Float]]): Unit = {
-      val spark = SparkSession.builder().sparkContext(sc).getOrCreate()
-
-      val vectorSize = model.values.head.length
-      val numWords = model.size
-      val metadata = compact(render(
-        ("class" -> classNameV1_0) ~ ("version" -> formatVersionV1_0) ~
-          ("vectorSize" -> vectorSize) ~ ("numWords" -> numWords)))
-      sc.parallelize(Seq(metadata), 1).saveAsTextFile(Loader.metadataPath(path))
-
-      // We want to partition the model in partitions smaller than
-      // spark.kryoserializer.buffer.max
-      val bufferSize = Utils.byteStringAsBytes(
-        spark.conf.get("spark.kryoserializer.buffer.max", "64m"))
-      // We calculate the approximate size of the model
-      // We only calculate the array size, considering an
-      // average string size of 15 bytes, the formula is:
-      // (floatSize * vectorSize + 15) * numWords
-      val approxSize = (4L * vectorSize + 15) * numWords
-      val nPartitions = ((approxSize / bufferSize) + 1).toInt
-      val dataArray = model.toSeq.map { case (w, v) => Data(w, v) }
-      spark.createDataFrame(dataArray).repartition(nPartitions).write.parquet(Loader.dataPath(path))
-    }
-  }
+  private val maximumMessageSize = 10000
+  private val host = ""
 
   @Since("1.4.0")
   override def load(sc: SparkContext, path: String): ServerSideGlintWord2VecModel = {
-
-    val (loadedClassName, loadedVersion, metadata) = Loader.loadMetadata(sc, path)
-    implicit val formats = DefaultFormats
-    val expectedVectorSize = (metadata \ "vectorSize").extract[Int]
-    val expectedNumWords = (metadata \ "numWords").extract[Int]
-    val classNameV1_0 = SaveLoadV1_0.classNameV1_0
-    (loadedClassName, loadedVersion) match {
-      case (classNameV1_0, "1.0") =>
-        val model = SaveLoadV1_0.load(sc, path)
-        val vectorSize = model.getVectors.values.head.length
-        val numWords = model.getVectors.size
-        require(expectedVectorSize == vectorSize,
-          s"ServerSideGlintWord2VecModel requires each word to be mapped to a vector of size " +
-            s"$expectedVectorSize, got vector of size $vectorSize")
-        require(expectedNumWords == numWords,
-          s"ServerSideGlintWord2VecModel requires $expectedNumWords words, but got $numWords")
-        model
-      case _ => throw new Exception(
-        s"ServerSideGlintWord2VecModel.load did not recognize model with (className, format version):" +
-          s"($loadedClassName, $loadedVersion).  Supported:\n" +
-          s"  ($classNameV1_0, 1.0)")
-    }
+    val wordArrayPath = path + "/words"
+    val wordIndex = sc.textFile(wordArrayPath, minPartitions = 1).collect().zipWithIndex.toMap
+    val (client, matrix) = Client.runWithLoadedWord2VecMatrixOnSpark(sc, host, path)
+    val granularMatrix = new GranularBigWord2VecMatrix(matrix, maximumMessageSize)
+    new ServerSideGlintWord2VecModel(wordIndex, granularMatrix, client)
   }
 }

@@ -17,13 +17,15 @@ create_test_environment() {
   --name $WORKDIR \
   -p 8080:8080 \
   -p 9999:9999 \
+  -p 50070:50070 \
   -d \
   -v /`pwd`/src/it/resources/log4j.properties:/opt/spark-2.3.0-bin-hadoop2.6/conf/log4j.properties \
   -v /`pwd`:`pwd` \
   -it \
   --shm-size=512m \
   --workdir="/`pwd`" \
-  uncharted/sparklet:2.3.0 bash
+  mgabr/sparklet-hdfs:2.3.0 bash
+  sleep 30
 }
 
 run_test_environment() {
@@ -46,7 +48,7 @@ attach_test_environment() {
   docker attach $WORKDIR
 }
 
-exec_in_test_environment() {
+exec_test_environment() {
     printf "${GREEN}Executing${RESET} in Spark test environment (container: ${BLUE}${WORKDIR}${RESET})...\n"
     docker exec $WORKDIR $@
 }
@@ -68,7 +70,7 @@ elif [ "$1" = "attach" ]; then
   attach_test_environment
 elif [ "$1" = "exec" ]; then
   shift
-  exec_in_test_environment $@
+  exec_test_environment $@
 else
   verify_test_environment
 fi

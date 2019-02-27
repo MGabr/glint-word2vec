@@ -46,7 +46,7 @@ test in IntegrationTest := {
   val execSparkTests =
     s"""./spark-test-env.sh exec
         spark-submit
-        --driver-java-options=$aeronBufferLength
+        --conf spark.driver.extraJavaOptions=$aeronBufferLength
         --conf spark.executor.extraJavaOptions=$aeronBufferLength
         --total-executor-cores 2
         --jars target/scala-$scalaMajorMinorVersion/${name.value}-assembly-${version.value}.jar
@@ -69,7 +69,8 @@ test in IntegrationTest := (test in IntegrationTest).dependsOn(
 
 // Add integration tests to sbt project
 
-lazy val root = (project in file(".")).dependsOn(glint)
+lazy val root = (project in file("."))
+  .dependsOn(glint)
   .configs(IntegrationTest)
   .settings(Defaults.itSettings)
 
