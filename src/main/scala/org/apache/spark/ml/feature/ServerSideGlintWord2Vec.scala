@@ -138,19 +138,6 @@ private[feature] trait ServerSideGlintWord2VecBase extends Params
   def getNumParameterServers: Int = $(numParameterServers)
 
   /**
-    * The host name of the master of the parameter servers.
-    * Set to "" for automatic detection which may not always work and "127.0.0.1" for local testing
-    * Default: ""
-    */
-  final val parameterServerMasterHost = new Param[String](this, "parameterServerMasterHost",
-    "the host name of the master of the parameter servers. Set to \"\" for automatic detection which may not " +
-      "always work and \"127.0.0.1\" for local testing")
-  setDefault(parameterServerMasterHost -> "")
-
-  /** @group getParam */
-  def getParameterServerMasterHost: String = $(parameterServerMasterHost)
-
-  /**
     * The size of the unigram table.
     * Only needs to be changed to a lower value if there is not enough memory for local testing.
     * Default: 100.000.000
@@ -223,9 +210,6 @@ final class ServerSideGlintWord2Vec (override val uid: String)
   /** @group setParam */
   def setNumParameterServers(value: Int): this.type = set(numParameterServers, value)
 
-  /** @group setParam */
-  def setParameterServerMasterHost(value: String): this.type = set(parameterServerMasterHost, value)
-
   def setUnigramTableSize(value: Int): this.type = set(unigramTableSize, value)
 
   override def fit(dataset: Dataset[_]): ServerSideGlintWord2VecModel = {
@@ -243,7 +227,6 @@ final class ServerSideGlintWord2Vec (override val uid: String)
       .setBatchSize($(batchSize))
       .setN($(n))
       .setNumParameterServers($(numParameterServers))
-      .setParameterServerMasterHost($(parameterServerMasterHost))
       .setUnigramTableSize($(unigramTableSize))
       .fit(input)
     copyValues(new ServerSideGlintWord2VecModel(uid, wordVectors).setParent(this))

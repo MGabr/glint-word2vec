@@ -73,7 +73,6 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
   private var batchSize = 50
   private var n = 5
   private var numParameterServers = 5
-  private var parameterServerMasterHost = ""
   private var unigramTableSize = 100000000
 
   // default maximum payload size is 262144 bytes, akka.remote.OversizedPayloadException
@@ -189,16 +188,6 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     */
   def setNumParameterServers(numParameterServers: Int): this.type = {
     this.numParameterServers = numParameterServers
-    this
-  }
-
-  /**
-    * Sets the host name of the master of the parameter servers.
-    * Set to "" for automatic detection which may not always work and "127.0.0.1" for local testing
-    * (default: "")
-    */
-  def setParameterServerMasterHost(parameterServerMasterHost: String): this.type = {
-    this.parameterServerMasterHost = parameterServerMasterHost
     this
   }
 
@@ -325,8 +314,8 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     implicit val ec = ExecutionContext.Implicits.global
 
     @transient
-    val (client, matrix) = Client.runWithWord2VecMatrixOnSpark(
-      sc, parameterServerMasterHost, bcVocabCns, vectorSize, n, unigramTableSize, numParameterServers)
+    val (client, matrix) = Client.runWithWord2VecMatrixOnSpark(sc)(
+      bcVocabCns, vectorSize, n, unigramTableSize, numParameterServers)
     val syn = new GranularBigWord2VecMatrix(matrix, maximumMessageSize)
 
     val totalWordsCounts = numIterations * trainWordsCount + 1
@@ -625,12 +614,11 @@ class ServerSideGlintWord2VecModel private[spark](private[spark] val wordIndex: 
 object ServerSideGlintWord2VecModel extends Loader[ServerSideGlintWord2VecModel] {
 
   private val maximumMessageSize = 10000
-  private val host = ""
 
   override def load(sc: SparkContext, path: String): ServerSideGlintWord2VecModel = {
     val wordArrayPath = path + "/words"
     val wordIndex = sc.textFile(wordArrayPath, minPartitions = 1).collect().zipWithIndex.toMap
-    val (client, matrix) = Client.runWithLoadedWord2VecMatrixOnSpark(sc, host, path)
+    val (client, matrix) = Client.runWithLoadedWord2VecMatrixOnSpark(sc, path)
     val granularMatrix = new GranularBigWord2VecMatrix(matrix, maximumMessageSize)
     new ServerSideGlintWord2VecModel(wordIndex, granularMatrix, client)
   }
