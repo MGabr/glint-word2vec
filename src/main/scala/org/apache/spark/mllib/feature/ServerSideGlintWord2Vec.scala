@@ -21,7 +21,7 @@ import java.lang.{Iterable => JavaIterable}
 
 import breeze.linalg.convert
 import com.github.fommil.netlib.BLAS.{getInstance => blas}
-import glint.Client
+import glint.{Client, Word2VecArguments}
 import glint.models.client.granular.GranularBigWord2VecMatrix
 import org.apache.spark.api.java.JavaRDD
 import org.apache.spark.broadcast.Broadcast
@@ -315,7 +315,7 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
 
     @transient
     val (client, matrix) = Client.runWithWord2VecMatrixOnSpark(sc)(
-      bcVocabCns, vectorSize, n, unigramTableSize, numParameterServers)
+      Word2VecArguments(vectorSize, window, batchSize, n, unigramTableSize), bcVocabCns, numParameterServers)
     val syn = new GranularBigWord2VecMatrix(matrix, maximumMessageSize)
 
     val totalWordsCounts = numIterations * trainWordsCount + 1
@@ -618,7 +618,7 @@ object ServerSideGlintWord2VecModel extends Loader[ServerSideGlintWord2VecModel]
   override def load(sc: SparkContext, path: String): ServerSideGlintWord2VecModel = {
     val wordArrayPath = path + "/words"
     val wordIndex = sc.textFile(wordArrayPath, minPartitions = 1).collect().zipWithIndex.toMap
-    val (client, matrix) = Client.runWithLoadedWord2VecMatrixOnSpark(sc, path)
+    val (client, matrix) = Client.runWithLoadedWord2VecMatrixOnSpark(sc)(path)
     val granularMatrix = new GranularBigWord2VecMatrix(matrix, maximumMessageSize)
     new ServerSideGlintWord2VecModel(wordIndex, granularMatrix, client)
   }
