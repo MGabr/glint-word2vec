@@ -118,28 +118,28 @@ class ServerSideGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, H
                              "not enough memory for local testing")
 
     @keyword_only
-    def __init__(self, vectorSize=100, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1,
+    def __init__(self, vectorSize=100, minCount=5, numPartitions=1, stepSize=0.01875, maxIter=1,
                  seed=None, inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000,
                  batchSize=50, n=5, numParameterServers=5, unigramTableSize=100000000):
         """
-        __init__(self, vectorSize=100, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1, \
+        __init__(self, vectorSize=100, minCount=5, numPartitions=1, stepSize=0.01875, maxIter=1, \
                  seed=None, inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000, \
                  batchSize=50, n=5, numParameterServers=5, unigramTableSize=100000000)
         """
         super(ServerSideGlintWord2Vec, self).__init__()
         self._java_obj = self._new_java_obj("org.apache.spark.ml.feature.ServerSideGlintWord2Vec", self.uid)
-        self._setDefault(vectorSize=100, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1,
+        self._setDefault(vectorSize=100, minCount=5, numPartitions=1, stepSize=0.01875, maxIter=1,
                          windowSize=5, maxSentenceLength=1000, batchSize=50, n=5, numParameterServers=5,
                          unigramTableSize=100000000)
         kwargs = self._input_kwargs
         self.setParams(**kwargs)
 
     @keyword_only
-    def setParams(self, vectorSize=100, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1,
+    def setParams(self, vectorSize=100, minCount=5, numPartitions=1, stepSize=0.01875, maxIter=1,
                   seed=None, inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000,
                   batchSize=50, n=5, numParameterServers=5, unigramTableSize=100000000):
         """
-        setParams(self, minCount=5, numPartitions=1, stepSize=0.025, maxIter=1, seed=None, \
+        setParams(self, minCount=5, numPartitions=1, stepSize=0.01875, maxIter=1, seed=None, \
                  inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000, \
                  batchSize=50, n=5, numParameterServers=5, unigramTableSize=100000000)
         Sets params for this ServerSideGlintWord2Vec.
