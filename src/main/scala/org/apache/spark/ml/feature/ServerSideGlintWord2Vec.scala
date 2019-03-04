@@ -149,7 +149,7 @@ private[feature] trait ServerSideGlintWord2VecBase extends Params
   /** @group getParam */
   def getUnigramTableSize: Int = $(unigramTableSize)
 
-  setDefault(stepSize -> 0.025)
+  setDefault(stepSize -> 0.01875)
   setDefault(maxIter -> 1)
 
   /**

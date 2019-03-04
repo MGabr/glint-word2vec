@@ -63,7 +63,7 @@ private case class VocabWordCn(var word: String, var cn: Int)
 class ServerSideGlintWord2Vec extends Serializable with Logging {
 
   private var vectorSize = 100
-  private var learningRate = 0.025
+  private var learningRate = 0.01875
   private var numPartitions = 1
   private var numIterations = 1
   private var seed = Utils.random.nextLong()
