@@ -127,6 +127,18 @@ private[feature] trait ServerSideGlintWord2VecBase extends Params
   def getN: Int = $(n)
 
   /**
+    * The ratio controlling how much subsampling occurs.
+    * Smaller values mean frequent words are less likely to be kept
+    * Default: 1e-6
+    */
+  final val subsampleRatio = new DoubleParam(this, "subsampleRatio", "the ratio controlling how " +
+    "much subsampling occurs. Smaller values mean frequent words are less likely to be kept")
+  setDefault(subsampleRatio -> 1e-6)
+
+  /** @group getParam */
+  def getSubsampleRatio: Double = $(subsampleRatio)
+
+  /**
     * The number of parameter servers to create
     * Default: 5
     */
@@ -208,8 +220,12 @@ final class ServerSideGlintWord2Vec (override val uid: String)
   def setN(value: Int): this.type = set(n, value)
 
   /** @group setParam */
+  def setSubsampleRatio(value: Double): this.type = set(subsampleRatio, value)
+
+  /** @group setParam */
   def setNumParameterServers(value: Int): this.type = set(numParameterServers, value)
 
+  /** @group setParam */
   def setUnigramTableSize(value: Int): this.type = set(unigramTableSize, value)
 
   override def fit(dataset: Dataset[_]): ServerSideGlintWord2VecModel = {
@@ -226,6 +242,7 @@ final class ServerSideGlintWord2Vec (override val uid: String)
       .setMaxSentenceLength($(maxSentenceLength))
       .setBatchSize($(batchSize))
       .setN($(n))
+      .setSubsampleRatio($(subsampleRatio))
       .setNumParameterServers($(numParameterServers))
       .setUnigramTableSize($(unigramTableSize))
       .fit(input)

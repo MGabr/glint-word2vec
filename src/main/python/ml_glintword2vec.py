@@ -110,6 +110,8 @@ class ServerSideGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, H
     n = Param(Params._dummy(), "n",
               "the number of random negative examples",
               typeConverter=TypeConverters.toInt)
+    subsampleRatio = Param(Params._dummy(), "subsampleRatio", "the ratio controlling how much subsampling occurs. " +
+                           "Smaller values mean frequent words are less likely to be kept")
     numParameterServers = Param(Params._dummy(), "numParameterServers",
                                 "the number of parameter servers to create",
                                 typeConverter=TypeConverters.toInt)
@@ -120,28 +122,32 @@ class ServerSideGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, H
     @keyword_only
     def __init__(self, vectorSize=100, minCount=5, numPartitions=1, stepSize=0.01875, maxIter=1,
                  seed=None, inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000,
-                 batchSize=50, n=5, numParameterServers=5, unigramTableSize=100000000):
+                 batchSize=50, n=5, subsampleRatio=1e-6, numParameterServers=5,
+                 unigramTableSize=100000000):
         """
         __init__(self, vectorSize=100, minCount=5, numPartitions=1, stepSize=0.01875, maxIter=1, \
                  seed=None, inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000, \
-                 batchSize=50, n=5, numParameterServers=5, unigramTableSize=100000000)
+                 batchSize=50, n=5, subsampleRatio=1e-6, numParameterServers=5, \
+                 unigramTableSize=100000000)
         """
         super(ServerSideGlintWord2Vec, self).__init__()
         self._java_obj = self._new_java_obj("org.apache.spark.ml.feature.ServerSideGlintWord2Vec", self.uid)
         self._setDefault(vectorSize=100, minCount=5, numPartitions=1, stepSize=0.01875, maxIter=1,
-                         windowSize=5, maxSentenceLength=1000, batchSize=50, n=5, numParameterServers=5,
-                         unigramTableSize=100000000)
+                         windowSize=5, maxSentenceLength=1000, batchSize=50, n=5, subsampleRatio=1e-6,
+                         numParameterServers=5, unigramTableSize=100000000)
         kwargs = self._input_kwargs
         self.setParams(**kwargs)
 
     @keyword_only
     def setParams(self, vectorSize=100, minCount=5, numPartitions=1, stepSize=0.01875, maxIter=1,
                   seed=None, inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000,
-                  batchSize=50, n=5, numParameterServers=5, unigramTableSize=100000000):
+                  batchSize=50, n=5, subsampleRatio=1e-6, numParameterServers=5,
+                  unigramTableSize=100000000):
         """
         setParams(self, minCount=5, numPartitions=1, stepSize=0.01875, maxIter=1, seed=None, \
                  inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000, \
-                 batchSize=50, n=5, numParameterServers=5, unigramTableSize=100000000)
+                 batchSize=50, n=5, subsampleRatio=1e-6, numParameterServers=5, \
+                 unigramTableSize=100000000)
         Sets params for this ServerSideGlintWord2Vec.
         """
         kwargs = self._input_kwargs
@@ -230,6 +236,18 @@ class ServerSideGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, H
         Gets the value of n or its default value.
         """
         return self.getOrDefault(self.n)
+
+    def setSubsampleRatio(self, value):
+        """
+        Sets the value of :py:attr:`subsampleRatio`.
+        """
+        return self._set(subsampleRatio=value)
+
+    def getSubsampleRatio(self):
+        """
+        Gets the value of subsampleRatio or its default value.
+        """
+        return self.getOrDefault(self.subsampleRatio)
 
     def setNumParameterServers(self, value):
         """

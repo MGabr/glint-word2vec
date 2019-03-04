@@ -29,14 +29,14 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.mllib.linalg.{Vector, Vectors}
 import org.apache.spark.mllib.util.{Loader, Saveable}
 import org.apache.spark.rdd._
-import org.apache.spark.util.{BoundedPriorityQueue, Utils}
 import org.apache.spark.util.random.XORShiftRandom
+import org.apache.spark.util.{BoundedPriorityQueue, Utils}
 import org.apache.spark.{SparkContext, TaskContext}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.concurrent.duration._
-import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.concurrent.{Await, ExecutionContext}
 
 /**
   *  Entry in vocabulary
@@ -72,6 +72,7 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
 
   private var batchSize = 50
   private var n = 5
+  private var subsampleRatio = 1e-6
   private var numParameterServers = 5
   private var unigramTableSize = 100000000
 
@@ -177,6 +178,8 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     * Sets n, the number of random negative examples (default: 5)
     */
   def setN(n: Int): this.type = {
+    require(n > 0,
+      s"n must be positive but got ${n}")
     require(batchSize * n * window <= maximumMessageSize,
       s"Batch size * n * window has to be below or equal to ${maximumMessageSize} to avoid oversized Akka payload")
     this.n = n
@@ -184,9 +187,22 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
   }
 
   /**
+    * Sets subsampleRatio, the ratio controlling how much subsampling occurs.
+    * Smaller values mean frequent words are less likely to be kept (default: 1e-6)
+    */
+  def setSubsampleRatio(subsampleRatio: Double): this.type = {
+    require(subsampleRatio >= 0,
+      s"Subsample ratio must be nonnegative but got ${subsampleRatio}")
+    this.subsampleRatio = subsampleRatio
+    this
+  }
+
+  /**
     * Sets the number of parameter servers to create (default: 5)
     */
   def setNumParameterServers(numParameterServers: Int): this.type = {
+    require(numParameterServers > 0,
+      s"Number of parameter servers must be positive but got ${numParameterServers}")
     this.numParameterServers = numParameterServers
     this
   }
@@ -197,6 +213,8 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     * (default: 100000000)
     */
   def setUnigramTableSize(unigramTableSize: Int): this.type = {
+    require(unigramTableSize > 0,
+      s"Unigram table size must be positive but got ${unigramTableSize}")
     this.unigramTableSize = unigramTableSize
     this
   }
@@ -304,12 +322,6 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     val newSentences = sentences.repartition(numPartitions).cache()
     val initRandom = new XORShiftRandom(seed)
 
-    if (vocabSize.toLong * vectorSize >= Int.MaxValue) {
-      throw new RuntimeException("Please increase minCount or decrease vectorSize in ServerSideGlintWord2Vec" +
-        " to avoid an OOM. You are highly recommended to make your vocabSize*vectorSize, " +
-        "which is " + vocabSize + "*" + vectorSize + " for now, less than `Int.MaxValue`.")
-    }
-
     @transient
     implicit val ec = ExecutionContext.Implicits.global
 
@@ -324,7 +336,18 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     for (k <- 1 to numIterations) {
       val numWordsProcessedInPreviousIterations = (k - 1) * trainWordsCount
 
-      val sentencesContext: RDD[Array[Array[Int]]] = newSentences.mapPartitionsWithIndex { (idx, sentenceIter) =>
+      // subsample frequent words
+      val sentencesSubsampled = newSentences.mapPartitionsWithIndex { (idx, sentenceIter) =>
+        val random = new XORShiftRandom(seed ^ ((idx + 1) << 16) ^ ((-k - 1) << 8))
+        val vocabCns = bcVocabCns.value
+        sentenceIter.map(words => words.filter { word =>
+          val percentageCn = vocabCns(word) / trainWordsCount
+          val ran = (Math.sqrt(percentageCn / subsampleRatio) + 1) * (subsampleRatio / percentageCn)
+          random.nextDouble() <= ran
+        })
+      }
+
+      val sentencesContext: RDD[Array[Array[Int]]] = sentencesSubsampled.mapPartitionsWithIndex { (idx, sentenceIter) =>
         val random = new XORShiftRandom(seed ^ ((idx + 1) << 16) ^ ((-k - 1) << 8))
         sentenceIter.map { sentence =>
           sentence.indices.toArray.map { i =>
@@ -335,7 +358,7 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
         }
       }
 
-      newSentences.zip(sentencesContext).foreachPartition { iter =>
+      sentencesSubsampled.zip(sentencesContext).foreachPartition { iter =>
         @transient
         implicit val ec = ExecutionContext.Implicits.global
 
@@ -362,7 +385,7 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
             val sentenceContextMiniBatches = sentenceContext.sliding(batchSize, batchSize)
             val miniBatchFutures = sentenceMiniBatches.zip(sentenceContextMiniBatches).map { case (wInput, wOutput) =>
               val seed = random.nextLong()
-              syn.dotprod(wInput, wOutput, seed).map { case (fPlus, fMinus) =>
+              syn.dotprod(wInput, wOutput, seed).flatMap { case (fPlus, fMinus) =>
                 val gPlus = fPlus.map(f => getSigmoid(expTable, f, 1.0f) * alpha.toFloat)
                 val gMinus = fMinus.map(f => getSigmoid(expTable, f, 0.0f) * alpha.toFloat)
                 syn.adjust(wInput, wOutput, gPlus, gMinus, seed)
