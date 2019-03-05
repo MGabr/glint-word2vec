@@ -327,7 +327,8 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
 
     @transient
     val (client, matrix) = Client.runWithWord2VecMatrixOnSpark(sc)(
-      Word2VecArguments(vectorSize, window, batchSize, n, unigramTableSize), bcVocabCns, numParameterServers)
+      Word2VecArguments(vectorSize, window, batchSize, n, subsampleRatio, unigramTableSize),
+      bcVocabCns, numParameterServers)
     val syn = new GranularBigWord2VecMatrix(matrix, maximumMessageSize)
 
     val totalWordsCounts = numIterations * trainWordsCount + 1
@@ -385,7 +386,7 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
             val sentenceContextMiniBatches = sentenceContext.sliding(batchSize, batchSize)
             val miniBatchFutures = sentenceMiniBatches.zip(sentenceContextMiniBatches).map { case (wInput, wOutput) =>
               val seed = random.nextLong()
-              syn.dotprod(wInput, wOutput, seed).flatMap { case (fPlus, fMinus) =>
+              syn.dotprod(wInput, wOutput, seed).map { case (fPlus, fMinus) =>
                 val gPlus = fPlus.map(f => getSigmoid(expTable, f, 1.0f) * alpha.toFloat)
                 val gMinus = fMinus.map(f => getSigmoid(expTable, f, 0.0f) * alpha.toFloat)
                 syn.adjust(wInput, wOutput, gPlus, gMinus, seed)
