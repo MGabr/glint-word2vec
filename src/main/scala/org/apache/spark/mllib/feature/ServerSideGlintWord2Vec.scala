@@ -366,6 +366,8 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
         val idx = TaskContext.getPartitionId()
         val random = new XORShiftRandom(seed ^ ((idx + 1) << 16) ^ ((-k - 1) << 8))
 
+        var lastFPlus = 0.0f
+
         iter.foldLeft((0L, 0L)) {
           case ((lastWordCount, wordCount), (sentence, sentenceContext)) =>
             var lwc = lastWordCount
@@ -377,7 +379,7 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
                   totalWordsCounts)
               if (alpha < learningRate * 0.0001) alpha = learningRate * 0.0001
               logInfo(s"wordCount = ${wordCount + numWordsProcessedInPreviousIterations}, " +
-                s"alpha = $alpha")
+                s"alpha = $alpha, last fPlus(0) = $lastFPlus")
             }
             wc += sentence.length
 
@@ -387,6 +389,7 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
             val miniBatchFutures = sentenceMiniBatches.zip(sentenceContextMiniBatches).map { case (wInput, wOutput) =>
               val seed = random.nextLong()
               syn.dotprod(wInput, wOutput, seed).map { case (fPlus, fMinus) =>
+                lastFPlus = fPlus(0)
                 val gPlus = fPlus.map(f => getSigmoid(expTable, f, 1.0f) * alpha.toFloat)
                 val gMinus = fMinus.map(f => getSigmoid(expTable, f, 0.0f) * alpha.toFloat)
                 syn.adjust(wInput, wOutput, gPlus, gMinus, seed)
