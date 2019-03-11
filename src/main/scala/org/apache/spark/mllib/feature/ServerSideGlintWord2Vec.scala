@@ -327,8 +327,7 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
 
     @transient
     val (client, matrix) = Client.runWithWord2VecMatrixOnSpark(sc)(
-      Word2VecArguments(vectorSize, window, batchSize, n, subsampleRatio, unigramTableSize),
-      bcVocabCns, numParameterServers)
+      Word2VecArguments(vectorSize, window, batchSize, n, unigramTableSize), bcVocabCns, numParameterServers)
     val syn = new GranularBigWord2VecMatrix(matrix, maximumMessageSize)
 
     val totalWordsCounts = numIterations * trainWordsCount + 1
