@@ -1,5 +1,8 @@
 package org.apache.spark.ml.feature
 
+import java.net.InetAddress
+
+import com.typesafe.config.ConfigFactory
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, FileUtil, Path}
 import org.apache.spark.ml.linalg.{Vector, Vectors}
@@ -41,6 +44,16 @@ class ServerSideGlintWord2VecSpec extends FlatSpec with ScalaFutures with Before
   private var modelCreated = false
 
   /**
+    * Path to save model created using separate Glint cluster to.
+    * The first test will create it and subsequent tests will rely on it being present
+    */
+  private val separateGlintModelPath = "/var/tmp/separate/de_wikipedia_articles_country_capitals.model"
+
+  private var separateGlintModelCreated = false
+
+  private val separateGlintConfig = ConfigFactory.parseResourcesAnySyntax("separate-glint.conf")
+
+  /**
     * Path to save the local model, the default Spark implementation, to
     */
   private val localModelPath = "/var/tmp/local/de_wikipedia_articles_country_capitals.model"
@@ -66,6 +79,7 @@ class ServerSideGlintWord2VecSpec extends FlatSpec with ScalaFutures with Before
     s.stop()
   }
 
+
   "ServerSideGlintWord2Vec" should "train and save a model" in {
     import s.sqlContext.implicits._
     val sentences = s.sparkContext.textFile(testdataPath).map(row => row.split(" ")).toDF("sentence")
@@ -90,6 +104,35 @@ class ServerSideGlintWord2VecSpec extends FlatSpec with ScalaFutures with Before
     }
   }
 
+  it should "train and save a model using a separate Glint cluster" in {
+    import s.sqlContext.implicits._
+    val sentences = s.sparkContext.textFile(testdataPath)
+      .map(row => row.split(" "))
+      .toDF("sentence")
+      .limit(100)
+
+    val word2vec = new ServerSideGlintWord2Vec()
+      .setSeed(1)
+      .setNumPartitions(2)
+      .setNumParameterServers(2)
+      .setParameterServerHost(InetAddress.getLocalHost.getHostAddress)
+      .setParameterServerConfig(separateGlintConfig)
+      .setInputCol("sentence")
+      .setOutputCol("model")
+      .setUnigramTableSize(1000000)
+
+    val model = word2vec.fit(sentences)
+    try {
+      model.save(separateGlintModelPath)
+
+      FileSystem.get(s.sparkContext.hadoopConfiguration).exists(new Path(separateGlintModelPath)) shouldBe true
+
+      separateGlintModelCreated = true
+    } finally {
+      model.stop()
+    }
+  }
+
   it should "load a model" in {
     if (!modelCreated) {
       pending
@@ -107,6 +150,47 @@ class ServerSideGlintWord2VecSpec extends FlatSpec with ScalaFutures with Before
       model.getVectorSize shouldBe 100
     } finally {
       model.stop()
+    }
+  }
+
+  it should "load a model onto a separate Glint cluster" in {
+    if (!modelCreated) {
+      pending
+    }
+
+    val model = ServerSideGlintWord2VecModel.load(
+      modelPath, InetAddress.getLocalHost.getHostAddress, separateGlintConfig)
+    try {
+      model.getSeed shouldBe 1
+      model.getNumPartitions shouldBe 2
+      model.getNumParameterServers shouldBe 2
+      model.getInputCol shouldBe "sentence"
+      model.getOutputCol shouldBe "model"
+      model.getUnigramTableSize shouldBe 1000000
+
+      model.getVectorSize shouldBe 100
+    } finally {
+      model.stop()
+    }
+  }
+
+  it should "load a model trained on a separate Glint cluster" in {
+    if (!separateGlintModelCreated) {
+      pending
+    }
+
+    val model = ServerSideGlintWord2VecModel.load(separateGlintModelPath)
+    try {
+      model.getSeed shouldBe 1
+      model.getNumPartitions shouldBe 2
+      model.getNumParameterServers shouldBe 2
+      model.getInputCol shouldBe "sentence"
+      model.getOutputCol shouldBe "model"
+      model.getUnigramTableSize shouldBe 1000000
+
+      model.getVectorSize shouldBe 100
+    } finally {
+      model.stop(terminateOtherClients = true)
     }
   }
 

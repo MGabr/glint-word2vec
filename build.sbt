@@ -2,6 +2,8 @@ name := "glint-word2vec"
 
 version := "1.0"
 
+organization := "com.github.mgabr"
+
 scalaVersion := "2.11.8"
 val scalaMajorMinorVersion = "2.11"
 
@@ -9,7 +11,7 @@ libraryDependencies += "org.apache.spark" %% "spark-core" % "2.3.0" % "provided"
 libraryDependencies += "org.apache.spark" %% "spark-mllib" % "2.3.0" % "provided"
 
 // use this instead of the github dependency for easier local development if you are modifying glint
-// libraryDependencies += "at.mgabr" %% "glint" % "0.2-SNAPSHOT"
+// libraryDependencies += "com.github.mgabr" %% "glint" % "0.2-SNAPSHOT"
 
 lazy val glint = RootProject(uri("https://github.com/MGabr/glint.git#0.2-word2vec"))
 
@@ -37,12 +39,24 @@ fullClasspath in (IntegrationTest, assembly) := {
 
 // Override it:test task to execute integration tests in Spark docker container
 
+val sparkParameterServerArg = s"spark -c target/scala-$scalaMajorMinorVersion/it-classes/separate-glint.conf"
+val sparkParameterServerMain = "glint.Main"
 val sparkTestsMain = "org.apache.spark.ml.feature.Main"
 
 import scala.sys.process._
 
 test in IntegrationTest := {
   val startSparkTestEnv = "./spark-test-env.sh"
+  val execSparkParameterServer =
+    s"""./spark-test-env.sh exec-detach
+        spark-submit
+        --conf spark.driver.extraJavaOptions=$aeronBufferLength
+        --conf spark.executor.extraJavaOptions=$aeronBufferLength
+        --total-executor-cores 2
+        --class $sparkParameterServerMain
+        target/scala-$scalaMajorMinorVersion/${name.value}-assembly-${version.value}.jar
+        $sparkParameterServerArg
+     """
   val execSparkTests =
     s"""./spark-test-env.sh exec
         spark-submit
@@ -55,7 +69,7 @@ test in IntegrationTest := {
     """
   val stopSparkTestEnv = "./spark-test-env.sh stop"
   val rmSparkTestEnv = "./spark-test-env.sh rm"
-  val exitCode = (startSparkTestEnv #&& execSparkTests #&& stopSparkTestEnv #&& rmSparkTestEnv !)
+  val exitCode = (startSparkTestEnv #&& execSparkParameterServer #&& execSparkTests #&& stopSparkTestEnv #&& rmSparkTestEnv !)
   if (exitCode != 0) {
     (stopSparkTestEnv ### rmSparkTestEnv !)
     throw new RuntimeException(s"Integration tests failed with nonzero exit value: $exitCode")

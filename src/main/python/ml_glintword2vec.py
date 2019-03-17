@@ -16,6 +16,7 @@
 #
 
 import sys
+import types
 if sys.version > '3':
     basestring = str
 
@@ -111,42 +112,46 @@ class ServerSideGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, H
               "the number of random negative examples",
               typeConverter=TypeConverters.toInt)
     subsampleRatio = Param(Params._dummy(), "subsampleRatio", "the ratio controlling how much subsampling occurs. " +
-                           "Smaller values mean frequent words are less likely to be kept")
+                           "Smaller values mean frequent words are less likely to be kept",
+                           typeConverter=TypeConverters.toFloat)
     numParameterServers = Param(Params._dummy(), "numParameterServers",
                                 "the number of parameter servers to create",
                                 typeConverter=TypeConverters.toInt)
+    parameterServerHost = Param(Params._dummy(), "parameterServerHost",
+                                "the master host of the running parameter servers. If this is not set a standalone " +
+                                "parameter server cluster is started in this Spark application.")
     unigramTableSize = Param(Params._dummy(), "unigramTableSize",
                              "the size of the unigram table. Only needs to be changed to a lower value if there is " +
-                             "not enough memory for local testing")
+                             "not enough memory for local testing", typeConverter=TypeConverters.toInt)
 
     @keyword_only
     def __init__(self, vectorSize=100, minCount=5, numPartitions=1, stepSize=0.01875, maxIter=1,
                  seed=None, inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000,
-                 batchSize=50, n=5, subsampleRatio=1e-6, numParameterServers=5,
+                 batchSize=50, n=5, subsampleRatio=1e-6, numParameterServers=5, parameterServerHost="",
                  unigramTableSize=100000000):
         """
         __init__(self, vectorSize=100, minCount=5, numPartitions=1, stepSize=0.01875, maxIter=1, \
                  seed=None, inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000, \
-                 batchSize=50, n=5, subsampleRatio=1e-6, numParameterServers=5, \
+                 batchSize=50, n=5, subsampleRatio=1e-6, numParameterServers=5, parameterServerHost="", \
                  unigramTableSize=100000000)
         """
         super(ServerSideGlintWord2Vec, self).__init__()
         self._java_obj = self._new_java_obj("org.apache.spark.ml.feature.ServerSideGlintWord2Vec", self.uid)
         self._setDefault(vectorSize=100, minCount=5, numPartitions=1, stepSize=0.01875, maxIter=1,
                          windowSize=5, maxSentenceLength=1000, batchSize=50, n=5, subsampleRatio=1e-6,
-                         numParameterServers=5, unigramTableSize=100000000)
+                         numParameterServers=5, parameterServerHost="", unigramTableSize=100000000)
         kwargs = self._input_kwargs
         self.setParams(**kwargs)
 
     @keyword_only
     def setParams(self, vectorSize=100, minCount=5, numPartitions=1, stepSize=0.01875, maxIter=1,
                   seed=None, inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000,
-                  batchSize=50, n=5, subsampleRatio=1e-6, numParameterServers=5,
+                  batchSize=50, n=5, subsampleRatio=1e-6, numParameterServers=5, parameterServerHost="",
                   unigramTableSize=100000000):
         """
         setParams(self, minCount=5, numPartitions=1, stepSize=0.01875, maxIter=1, seed=None, \
                  inputCol=None, outputCol=None, windowSize=5, maxSentenceLength=1000, \
-                 batchSize=50, n=5, subsampleRatio=1e-6, numParameterServers=5, \
+                 batchSize=50, n=5, subsampleRatio=1e-6, numParameterServers=5, parameterServerHost="", \
                  unigramTableSize=100000000)
         Sets params for this ServerSideGlintWord2Vec.
         """
@@ -261,6 +266,18 @@ class ServerSideGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, H
         """
         return self.getOrDefault(self.numParameterServers)
 
+    def setParameterServerHost(self, value):
+        """
+        Sets the value of :py:attr:`parameterServerHost`.
+        """
+        return self._set(parameterServerHost=value)
+
+    def getParameterServerHost(self):
+        """
+        Gets the value of parameterServerHost or its default value.
+        """
+        return self.getOrDefault(self.parameterServerHost)
+
     def setUnigramTableSize(self, value):
         """
         Sets the value of :py:attr:`unigramTableSize`.
@@ -318,11 +335,36 @@ class ServerSideGlintWord2VecModel(JavaModel, JavaMLReadable, JavaMLWritable):
         tuples = self._java_obj.findSynonymsArray(word, num)
         return list(map(lambda st: (st._1(), st._2()), list(tuples)))
 
-    def stop(self):
+    @classmethod
+    def load(cls, path, parameterServerHost=""):
+        """
+        Loads a :py:class:`ServerSideGlintWord2VecModel`
+
+        :param path: The path
+        :param parameterServerHost: the master host of the running parameter servers.
+            If this is not set a standalone parameter server cluster is started in this Spark application.
+        """
+        reader = cls.read()
+
+        def readerLoad(self, path, parameterServerHost):
+            if not isinstance(path, basestring):
+                raise TypeError("path should be a basestring, got type %s" % type(path))
+            java_obj = self._jread.load(path, parameterServerHost)
+            if not hasattr(self._clazz, "_from_java"):
+                raise NotImplementedError("This Java ML type cannot be loaded into Python currently: %r" % self._clazz)
+            return self._clazz._from_java(java_obj)
+
+        reader.load = types.MethodType(readerLoad, reader)
+        return reader.load(path, parameterServerHost)
+
+    def stop(self, terminateOtherClients=False):
         """
         Stops the model and releases the underlying distributed matrix and broadcasts.
         This model can't be used anymore afterwards.
+
+        :param terminateOtherClients: If other clients should be terminated. This is the necessary if a glint cluster
+            in another Spark application should be terminated.
         """
-        self._call_java("stop")
+        self._call_java("stop", terminateOtherClients)
 
 feature.ServerSideGlintWord2VecModel = ServerSideGlintWord2VecModel

@@ -22,7 +22,7 @@ create_test_environment() {
   -v /`pwd`/src/it/resources/log4j.properties:/opt/spark-2.3.0-bin-hadoop2.6/conf/log4j.properties \
   -v /`pwd`:`pwd` \
   -it \
-  --shm-size=512m \
+  --shm-size=1g \
   --workdir="/`pwd`" \
   mgabr/sparklet-hdfs:2.3.0 bash
   sleep 30
@@ -53,6 +53,11 @@ exec_test_environment() {
     docker exec $WORKDIR $@
 }
 
+exec_detach_test_environment() {
+    printf "${GREEN}Executing detached${RESET} in Spark test environment (container: ${BLUE}${WORKDIR}${RESET})...\n"
+    docker exec --detach $WORKDIR $@
+}
+
 verify_test_environment() {
   PRESENT=$(docker ps -a -q -f name=$WORKDIR)
   if [ -n "$PRESENT" ]; then
@@ -71,6 +76,9 @@ elif [ "$1" = "attach" ]; then
 elif [ "$1" = "exec" ]; then
   shift
   exec_test_environment $@
+elif [ "$1" = "exec-detach" ]; then
+  shift
+  exec_detach_test_environment $@
 else
   verify_test_environment
 fi

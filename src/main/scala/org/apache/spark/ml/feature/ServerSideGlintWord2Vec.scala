@@ -18,6 +18,7 @@
 package org.apache.spark.ml.feature
 
 import breeze.linalg.convert
+import com.typesafe.config._
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.ml.linalg.{Vector, VectorUDT, Vectors}
 import org.apache.spark.ml.param._
@@ -109,6 +110,8 @@ private[feature] trait ServerSideGlintWord2VecBase extends Params
   /**
     * The mini batch size
     * Default: 50
+    *
+    * @group param
     */
   final val batchSize = new IntParam(this, "batchSize", "the mini batch size")
   setDefault(batchSize -> 50)
@@ -119,6 +122,8 @@ private[feature] trait ServerSideGlintWord2VecBase extends Params
   /**
     * The number of random negative examples
     * Default: 5
+    *
+    * @group param
     */
   final val n = new IntParam(this, "n", "the number of random negative examples")
   setDefault(n -> 5)
@@ -130,6 +135,8 @@ private[feature] trait ServerSideGlintWord2VecBase extends Params
     * The ratio controlling how much subsampling occurs.
     * Smaller values mean frequent words are less likely to be kept
     * Default: 1e-6
+    *
+    * @group param
     */
   final val subsampleRatio = new DoubleParam(this, "subsampleRatio", "the ratio controlling how " +
     "much subsampling occurs. Smaller values mean frequent words are less likely to be kept")
@@ -141,6 +148,8 @@ private[feature] trait ServerSideGlintWord2VecBase extends Params
   /**
     * The number of parameter servers to create
     * Default: 5
+    *
+    * @group param
     */
   final val numParameterServers = new IntParam(this, "numParameterServers",
     "the number of parameter servers to create")
@@ -150,9 +159,47 @@ private[feature] trait ServerSideGlintWord2VecBase extends Params
   def getNumParameterServers: Int = $(numParameterServers)
 
   /**
+    * The master host of the running parameter servers.
+    * If this is not set a standalone parameter server cluster is started in this Spark application.
+    * Default: ""
+    *
+    * @group param
+    */
+  final val parameterServerHost = new Param[String](this, "parameterServerHost",
+    "the master host of the running parameter servers. " +
+      "If this is not set a standalone parameter server cluster is started in this Spark application.")
+  setDefault(parameterServerHost -> "")
+
+  /** @group getParam */
+  def getParameterServerHost: String = $(parameterServerHost)
+
+  /**
+    * The parameter server configuration.
+    * Allows for detailed configuration of the parameter servers with the default configuration as fallback.
+    * Default: ConfigFactory.empty()
+    *
+    * @group param
+    */
+  final val parameterServerConfig = new Param[Config](this, "parameterServerConfig",
+    "The parameter server configuration. Allows for detailed configuration of the parameter servers with the " +
+      "default configuration as fallback.") {
+
+    override def jsonEncode(value: Config): String = {
+      value.root().render(ConfigRenderOptions.concise().setJson(true))
+    }
+
+    override def jsonDecode(json: String): Config = {
+      ConfigFactory.parseString(json, ConfigParseOptions.defaults().setSyntax(ConfigSyntax.JSON))
+    }
+  }
+  setDefault(parameterServerConfig -> ConfigFactory.empty())
+
+  /**
     * The size of the unigram table.
     * Only needs to be changed to a lower value if there is not enough memory for local testing.
     * Default: 100.000.000
+    *
+    * @group param
     */
   final val unigramTableSize = new IntParam(this, "unigramTableSize", "the size of the " +
     "unigram table. Only needs to be changed to a lower value if there is not enough memory for local testing")
@@ -226,6 +273,12 @@ final class ServerSideGlintWord2Vec (override val uid: String)
   def setNumParameterServers(value: Int): this.type = set(numParameterServers, value)
 
   /** @group setParam */
+  def setParameterServerHost(value: String): this.type = set(parameterServerHost, value)
+
+  /** @group setParam */
+  def setParameterServerConfig(value: Config): this.type = set(parameterServerConfig, value.resolve())
+
+  /** @group setParam */
   def setUnigramTableSize(value: Int): this.type = set(unigramTableSize, value)
 
   override def fit(dataset: Dataset[_]): ServerSideGlintWord2VecModel = {
@@ -244,6 +297,8 @@ final class ServerSideGlintWord2Vec (override val uid: String)
       .setN($(n))
       .setSubsampleRatio($(subsampleRatio))
       .setNumParameterServers($(numParameterServers))
+      .setParameterServerHost($(parameterServerHost))
+      .setParameterServerConfig($(parameterServerConfig))
       .setUnigramTableSize($(unigramTableSize))
       .fit(input)
     copyValues(new ServerSideGlintWord2VecModel(uid, wordVectors).setParent(this))
@@ -412,10 +467,14 @@ class ServerSideGlintWord2VecModel private[ml](override val uid: String,
   /**
     * Stops the model and releases the underlying distributed matrix and broadcasts.
     * This model can't be used anymore afterwards.
+    *
+    * @param terminateOtherClients If other clients should be terminated. This is the necessary if a glint cluster in
+    *                              another Spark application should be terminated.
     */
-  def stop(): Unit = {
+  def stop(terminateOtherClients: Boolean = false): Unit = {
     bcWordIndexOpt.foreach(_.destroy())
-    mllibModel.stop(SparkSession.builder().getOrCreate().sparkContext)
+    bcWordIndexOpt = None
+    mllibModel.stop(SparkSession.builder().getOrCreate().sparkContext, terminateOtherClients)
   }
 }
 
@@ -436,15 +495,89 @@ object ServerSideGlintWord2VecModel extends MLReadable[ServerSideGlintWord2VecMo
 
     override def load(path: String): ServerSideGlintWord2VecModel = {
       val metadata = DefaultParamsReader.loadMetadata(path, sc, className)
-      val oldModel = MLlibServerSideGlintWord2VecModel.load(sparkSession.sparkContext, path)
+      val parameterServerHost = metadata.getParamValue("parameterServerHost").values.asInstanceOf[String]
+      val parameterServerConfig = ConfigFactory.parseMap(toJavaPathMap(
+        metadata.getParamValue("parameterServerConfig").values.asInstanceOf[Map[String, _]]))
+      load(metadata, path, parameterServerHost, parameterServerConfig)
+    }
+
+    def load(path: String, parameterServerHost: String): ServerSideGlintWord2VecModel = {
+      val metadata = DefaultParamsReader.loadMetadata(path, sc, className)
+      val parameterServerConfig = ConfigFactory.parseMap(toJavaPathMap(
+        metadata.getParamValue("parameterServerConfig").values.asInstanceOf[Map[String, _]]))
+      load(metadata, path, parameterServerHost, parameterServerConfig)
+    }
+
+    def load(path: String, parameterServerHost: String, parameterServerConfig: Config): ServerSideGlintWord2VecModel = {
+      val metadata = DefaultParamsReader.loadMetadata(path, sc, className)
+      load(metadata, path, parameterServerHost, parameterServerConfig)
+    }
+
+    private def load(metadata: DefaultParamsReader.Metadata,
+                     path: String,
+                     parameterServerHost: String,
+                     parameterServerConfig: Config): ServerSideGlintWord2VecModel = {
+
+      val oldModel = MLlibServerSideGlintWord2VecModel.load(
+        sparkSession.sparkContext, path, parameterServerHost, parameterServerConfig)
       val model = new ServerSideGlintWord2VecModel(metadata.uid, oldModel)
       DefaultParamsReader.getAndSetParams(model, metadata)
+      model.set(model.parameterServerHost, parameterServerHost)
+      model.set(model.parameterServerConfig, parameterServerConfig.resolve())
       model
+    }
+
+    private def toJavaPathMap(map: Map[String, _],
+                              pathMap: java.util.Map[String, Object] = new java.util.HashMap[String, Object](),
+                              root: String = ""): java.util.Map[String, Object] = {
+      map.foreach {
+        case (key: String, value: Map[String, _]) =>
+          val path = if (root == "") key else s"$root.$key"
+          toJavaPathMap(value, pathMap, path)
+        case (key: String, value: Object) =>
+          val path = if (root == "") key else s"$root.$key"
+          pathMap.put(path, value)
+      }
+      pathMap
     }
   }
 
   override def read: MLReader[ServerSideGlintWord2VecModel] = new ServerSideGlintWord2VecModelReader
 
+  /**
+    * Loads a [[org.apache.spark.ml.feature.ServerSideGlintWord2VecModel ServerSideGlintWord2VecModel]]
+    * and either starts a parameter server cluster in this Spark application or connects to running parameter servers
+    * depending on the saved parameter server host and parameter server configuration.
+    *
+    * @param path The path
+    * @return The [[org.apache.spark.ml.feature.ServerSideGlintWord2VecModel ServerSideGlintWord2VecModel]]
+    */
   override def load(path: String): ServerSideGlintWord2VecModel = super.load(path)
+
+  /**
+    * Loads a [[org.apache.spark.ml.feature.ServerSideGlintWord2VecModel ServerSideGlintWord2VecModel]] and uses
+    * the saved parameter server configuration.
+    *
+    * @param path                The path
+    * @param parameterServerHost The master host of the running parameter servers. If this is not set a standalone
+    *                            parameter server cluster is started in this Spark application.
+    * @return The [[org.apache.spark.ml.feature.ServerSideGlintWord2VecModel ServerSideGlintWord2VecModel]]
+    */
+  def load(path: String, parameterServerHost: String): ServerSideGlintWord2VecModel = {
+    new ServerSideGlintWord2VecModelReader().load(path, parameterServerHost)
+  }
+
+  /**
+    * Loads a [[org.apache.spark.ml.feature.ServerSideGlintWord2VecModel ServerSideGlintWord2VecModel]]
+    *
+    * @param path                  The path
+    * @param parameterServerHost   The master host of the running parameter servers. If this is not set a standalone
+    *                              parameter server cluster is started in this Spark application.
+    * @param parameterServerConfig The parameter server configuration
+    * @return The [[org.apache.spark.ml.feature.ServerSideGlintWord2VecModel ServerSideGlintWord2VecModel]]
+    */
+  def load(path: String, parameterServerHost: String, parameterServerConfig: Config): ServerSideGlintWord2VecModel = {
+    new ServerSideGlintWord2VecModelReader().load(path, parameterServerHost, parameterServerConfig)
+  }
 }
 

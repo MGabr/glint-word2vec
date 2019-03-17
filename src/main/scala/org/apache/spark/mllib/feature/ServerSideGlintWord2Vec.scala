@@ -21,6 +21,7 @@ import java.lang.{Iterable => JavaIterable}
 
 import breeze.linalg.convert
 import com.github.fommil.netlib.BLAS.{getInstance => blas}
+import com.typesafe.config.{Config, ConfigFactory}
 import glint.{Client, Word2VecArguments}
 import glint.models.client.granular.GranularBigWord2VecMatrix
 import org.apache.spark.api.java.JavaRDD
@@ -74,6 +75,8 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
   private var n = 5
   private var subsampleRatio = 1e-6
   private var numParameterServers = 5
+  private var parameterServerHost = ""
+  private var parameterServerConfig = ConfigFactory.empty()
   private var unigramTableSize = 100000000
 
   // default maximum payload size is 262144 bytes, akka.remote.OversizedPayloadException
@@ -103,7 +106,7 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
   }
 
   /**
-    * Sets initial learning rate (default: 0.025).
+    * Sets initial learning rate (default: 0.01875).
     */
   def setLearningRate(learningRate: Double): this.type = {
     require(learningRate > 0,
@@ -208,6 +211,26 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
   }
 
   /**
+    * Sets the master host of the running parameter servers.
+    * If this is not set a standalone parameter server cluster is started in this Spark application.
+    * (default: "")
+    */
+  def setParameterServerHost(parameterServerHost: String): this.type = {
+    this.parameterServerHost = parameterServerHost
+    this
+  }
+
+  /**
+    * The parameter server configuration.
+    * Allows for detailed configuration of the parameter servers with the default configuration as fallback.
+    * (default: ConfigFactory.empty())
+    */
+  def setParameterServerConfig(parameterServerConfig: Config): this.type = {
+    this.parameterServerConfig = parameterServerConfig.resolve()
+    this
+  }
+
+  /**
     * Sets the size of the unigram table.
     * Only needs to be changed to a lower value if there is not enough memory for local testing.
     * (default: 100000000)
@@ -302,11 +325,10 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
   }
 
 
-  private def doFit[S <: Iterable[String]](
-                                            dataset: RDD[S], sc: SparkContext,
-                                            expTable: Broadcast[Array[Float]],
-                                            bcVocabCns: Broadcast[Array[Int]],
-                                            bcVocabHash: Broadcast[mutable.HashMap[String, Int]]) = {
+  private def doFit[S <: Iterable[String]](dataset: RDD[S], sc: SparkContext,
+                                           expTable: Broadcast[Array[Float]],
+                                           bcVocabCns: Broadcast[Array[Int]],
+                                           bcVocabHash: Broadcast[mutable.HashMap[String, Int]]): ServerSideGlintWord2VecModel = {
     // each partition is a collection of sentences,
     // will be translated into arrays of Index integer
     val sentences: RDD[Array[Int]] = dataset.mapPartitions { sentenceIter =>
@@ -325,9 +347,17 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
     @transient
     implicit val ec = ExecutionContext.Implicits.global
 
+    val args = Word2VecArguments(vectorSize, window, batchSize, n, unigramTableSize)
+
     @transient
-    val (client, matrix) = Client.runWithWord2VecMatrixOnSpark(sc)(
-      Word2VecArguments(vectorSize, window, batchSize, n, unigramTableSize), bcVocabCns, numParameterServers)
+    val (client, matrix) = if (parameterServerHost.isEmpty) {
+      Client.runWithWord2VecMatrixOnSpark(
+        sc, parameterServerConfig, args, bcVocabCns, numParameterServers, Client.getExecutorCores(sc))
+    } else {
+      val c = Client(Client.getHostConfig(parameterServerHost).withFallback(parameterServerConfig))
+      val m = c.word2vecMatrix(args, bcVocabCns.value, sc.hadoopConfiguration, numParameterServers)
+      (c, m)
+    }
     val syn = new GranularBigWord2VecMatrix(matrix, maximumMessageSize)
 
     val totalWordsCounts = numIterations * trainWordsCount + 1
@@ -425,7 +455,6 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
   * @param wordIndex maps each word to an index, which can retrieve the corresponding vector from the word vector matrix
   * @param matrix holding the word vector parameter servers
   * @param client to the parameter servers
-  * @param ec the implicit execution context in which to execute the parameter server requests
   */
 class ServerSideGlintWord2VecModel private[spark](private[spark] val wordIndex: Map[String, Int],
                                                   private[spark] val matrix: GranularBigWord2VecMatrix,
@@ -626,13 +655,16 @@ class ServerSideGlintWord2VecModel private[spark](private[spark] val wordIndex: 
   }
 
   /**
-    * Stops the model and releases the underlying distributed matrix and broadcasts.
+    * Stops the model and releases the underlying distributed matrix.
     * This model can't be used anymore afterwards.
     *
-    * @param sc The Spark context
+    * @param sc                    The Spark context
+    * @param terminateOtherClients If other clients should be terminated. This is the necessary if a glint cluster in
+    *                              another Spark application should be terminated.
     */
-  def stop(sc: SparkContext): Unit = {
-    client.terminateOnSpark(sc)
+  def stop(sc: SparkContext, terminateOtherClients: Boolean = false): Unit = {
+    matrix.destroy()
+    client.terminateOnSpark(sc, terminateOtherClients)
   }
 
 }
@@ -641,10 +673,54 @@ object ServerSideGlintWord2VecModel extends Loader[ServerSideGlintWord2VecModel]
 
   private val maximumMessageSize = 10000
 
+  /**
+    * Loads a [[org.apache.spark.mllib.feature.ServerSideGlintWord2VecModel ServerSideGlintWord2VecModel]]
+    * starting a standalone parameter server cluster in this Spark application
+    *
+    * @param sc   The Spark context
+    * @param path The path
+    * @return The [[org.apache.spark.mllib.feature.ServerSideGlintWord2VecModel ServerSideGlintWord2VecModel]]
+    */
   override def load(sc: SparkContext, path: String): ServerSideGlintWord2VecModel = {
+    load(sc, path, "")
+  }
+
+  /**
+    * Loads a [[org.apache.spark.mllib.feature.ServerSideGlintWord2VecModel ServerSideGlintWord2VecModel]]
+    *
+    * @param sc                  The Spark context
+    * @param path                The path
+    * @param parameterServerHost the master host of the running parameter servers. If this is not set a standalone
+    *                            parameter server cluster is started in this Spark application.
+    * @return The [[org.apache.spark.mllib.feature.ServerSideGlintWord2VecModel ServerSideGlintWord2VecModel]]
+    */
+  def load(sc: SparkContext, path: String, parameterServerHost: String): ServerSideGlintWord2VecModel = {
+    load(sc, path, parameterServerHost, ConfigFactory.empty())
+  }
+
+  /**
+    * Loads a [[org.apache.spark.mllib.feature.ServerSideGlintWord2VecModel ServerSideGlintWord2VecModel]]
+    *
+    * @param sc                    The Spark context
+    * @param path                  The path
+    * @param parameterServerHost   the master host of the running parameter servers. If this is not set a standalone
+    *                              parameter server cluster is started in this Spark application.
+    * @param parameterServerConfig The parameter server configuration
+    * @return The [[org.apache.spark.mllib.feature.ServerSideGlintWord2VecModel ServerSideGlintWord2VecModel]]
+    */
+  def load(sc: SparkContext,
+           path: String,
+           parameterServerHost: String,
+           parameterServerConfig: Config): ServerSideGlintWord2VecModel = {
     val wordArrayPath = path + "/words"
     val wordIndex = sc.textFile(wordArrayPath, minPartitions = 1).collect().zipWithIndex.toMap
-    val (client, matrix) = Client.runWithLoadedWord2VecMatrixOnSpark(sc)(path)
+    val config = Client.getHostConfig(parameterServerHost).withFallback(parameterServerConfig)
+    val client = if (parameterServerHost.isEmpty) {
+      Client.runOnSpark(sc, config, Client.getNumExecutors(sc), Client.getExecutorCores(sc))
+    } else {
+      Client(config)
+    }
+    val matrix = client.loadWord2vecMatrix(path, sc.hadoopConfiguration)
     val granularMatrix = new GranularBigWord2VecMatrix(matrix, maximumMessageSize)
     new ServerSideGlintWord2VecModel(wordIndex, granularMatrix, client)
   }
