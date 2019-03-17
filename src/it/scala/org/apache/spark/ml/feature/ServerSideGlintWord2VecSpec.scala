@@ -86,6 +86,7 @@ class ServerSideGlintWord2VecSpec extends FlatSpec with ScalaFutures with Before
 
     val word2vec = new ServerSideGlintWord2Vec()
       .setSeed(1)
+      .setStepSize(0.025)
       .setNumPartitions(2)
       .setNumParameterServers(2)
       .setInputCol("sentence")
