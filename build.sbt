@@ -88,3 +88,13 @@ lazy val root = (project in file("."))
   .configs(IntegrationTest)
   .settings(Defaults.itSettings)
 
+
+// Scala documentation
+
+scalacOptions in(Compile, doc) ++= Seq("-doc-title", "Glint-Word2Vec")
+
+enablePlugins(GhpagesPlugin)
+
+git.remoteRepo := "git@github.com:MGabr/glint-word2vec.git"
+
+enablePlugins(SiteScaladocPlugin)
