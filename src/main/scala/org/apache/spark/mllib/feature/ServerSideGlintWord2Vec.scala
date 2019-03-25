@@ -51,15 +51,18 @@ private case class VocabWordCn(var word: String, var cn: Int)
   * The vector representation can be used as features in
   * natural language processing and machine learning algorithms.
   *
-  * We used skip-gram model in our implementation and hierarchical softmax
-  * method to train the model. The variable names in the implementation
-  * matches the original C implementation.
+  * This implementation is different from the standard Spark implementation
+  * in that it allows training very large models by using parameter servers.
+  * It uses the skip-gram model with mini-batches and negative sampling and
+  * performs the training in a network efficient way as presented in
   *
-  * For original C implementation, see https://code.google.com/p/word2vec/
-  * For research papers, see
-  * Efficient Estimation of Word Representations in Vector Space
-  * and
-  * Distributed Representations of Words and Phrases and their Compositionality.
+  * {{{
+  *   Erik Ordentlich, Lee Yang, Andy Feng, Peter Cnudde, Mihajlo Grbovic,
+  *   Nemanja Djuric, Vladan Radosavljevic and Gavin Owens.
+  *   '''"Network-Efficient Distributed Word2vec Training System for Large Vocabularies."'''
+  *   ''In CIKM, 2016, Pages 1139-1148''
+  * }}}
+  *
   */
 class ServerSideGlintWord2Vec extends Serializable with Logging {
 

@@ -40,6 +40,17 @@ class ServerSideGlintWord2Vec(JavaEstimator, HasStepSize, HasMaxIter, HasSeed, H
     """
     ServerSideGlintWord2Vec trains a model of `Map(String, Vector)`, i.e. transforms a word into a code for further
     natural language processing or machine learning process.
+
+    This implementation is different from the standard Spark implementation
+    in that it allows training very large models by using parameter servers.
+    It uses the skip-gram model with mini-batches and negative sampling and
+    performs the training in a network efficient way as presented in
+
+    Erik Ordentlich, Lee Yang, Andy Feng, Peter Cnudde, Mihajlo Grbovic,
+    Nemanja Djuric, Vladan Radosavljevic and Gavin Owens.
+    **"Network-Efficient Distributed Word2vec Training System for Large Vocabularies."**
+    *In CIKM, 2016, Pages 1139-1148*
+
     >>> sent = ("a b " * 100 + "a c " * 10).split(" ")
     >>> doc = spark.createDataFrame([(sent,), (sent,)], ["sentence"])
     >>> word2Vec = ServerSideGlintWord2Vec(vectorSize=5, seed=42, inputCol="sentence", outputCol="model")
@@ -309,6 +320,10 @@ class ServerSideGlintWord2VecModel(JavaModel, JavaMLReadable, JavaMLWritable):
         """
         Returns the vector representation of the words as a dataframe
         with two fields, word and vector.
+
+        Note that this implementation pulls the whole distributed matrix
+        to the client and might therefore not work with large matrices
+        which do not fit into the client's memory.
         """
         return self._call_java("getVectors")
 
