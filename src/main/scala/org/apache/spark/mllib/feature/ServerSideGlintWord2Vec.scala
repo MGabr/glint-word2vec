@@ -485,7 +485,7 @@ class ServerSideGlintWord2VecModel private[spark](private[spark] val wordIndex: 
   /**
     * Array of length numWords, each value being the Euclidean norm of the wordVector
     */
-  private val wordVecNorms: Array[Float] = Await.result(matrix.norms(), 1 minute)
+  private lazy val wordVecNorms: Array[Float] = Await.result(matrix.norms(), 5 minutes)
 
   override protected def formatVersion = "1.0"
 
@@ -496,7 +496,7 @@ class ServerSideGlintWord2VecModel private[spark](private[spark] val wordIndex: 
     val savedFuture = matrix.save(path, sc.hadoopConfiguration)
     val wordArrayPath = path + "/words"
     sc.parallelize(wordList, 1).saveAsTextFile(wordArrayPath)
-    Await.ready(savedFuture, 3 minutes)
+    Await.ready(savedFuture, 5 minutes)
   }
 
   /**
@@ -597,7 +597,7 @@ class ServerSideGlintWord2VecModel private[spark](private[spark] val wordIndex: 
       blas.sscal(vectorSize, 1 / vecNorm, fVector, 0, 1)
     }
 
-    val cosineVec = Await.result(matrix.multiply(fVector), 1 minute)
+    val cosineVec = Await.result(matrix.multiply(fVector), 5 minutes)
 
     var i = 0
     while (i < numWords) {
@@ -638,7 +638,7 @@ class ServerSideGlintWord2VecModel private[spark](private[spark] val wordIndex: 
     * large matrices which do not fit into the client's memory.
     */
   def getVectors: Map[String, Array[Float]] = {
-    val vectors =  Await.result(matrix.pull((0L until numWords).toArray), 3 minutes)
+    val vectors = Await.result(matrix.pull((0L until numWords).toArray), 5 minutes)
     wordIndex.map { case (word, ind) => (word, vectors(ind).toArray) }
   }
 
@@ -653,7 +653,7 @@ class ServerSideGlintWord2VecModel private[spark](private[spark] val wordIndex: 
     * implementation are limited to 8GB because of the broadcast size limit.
     */
   def toLocal: Word2VecModel = {
-    val vectors =  Await.result(matrix.pull((0L until numWords).toArray), 3 minutes)
+    val vectors = Await.result(matrix.pull((0L until numWords).toArray), 5 minutes)
     new Word2VecModel(wordIndex, vectors.flatMap(_.toArray))
   }
 
