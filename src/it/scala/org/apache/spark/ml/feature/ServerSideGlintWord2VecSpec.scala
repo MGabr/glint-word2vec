@@ -294,11 +294,11 @@ class ServerSideGlintWord2VecSpec extends FlatSpec with ScalaFutures with Before
 
     val model = ServerSideGlintWord2VecModel.load(modelPath)
     try {
-      val (synonyms, similarities) = model.findSynonymsArray("frankreich", 10).unzip
+      val (synonyms, similarities) = model.findSynonymsArray("österreich", 10).unzip
 
       synonyms should have length 10
-      synonyms should contain("paris")
-      similarities(synonyms.indexOf("paris")) should be > 0.9
+      synonyms should contain("wien")
+      similarities(synonyms.indexOf("wien")) should be > 0.9
     } finally {
       model.stop()
     }
@@ -311,14 +311,14 @@ class ServerSideGlintWord2VecSpec extends FlatSpec with ScalaFutures with Before
 
     val model = ServerSideGlintWord2VecModel.load(modelPath)
     try {
-      val (synonyms, similarities) = model.findSynonyms("frankreich", 10)
+      val (synonyms, similarities) = model.findSynonyms("österreich", 10)
         .collect()
         .map(row => (row.getAs[String]("word"), row.getAs[Double]("similarity")))
         .unzip
 
       synonyms should have length 10
-      synonyms should contain("paris")
-      similarities(synonyms.indexOf("paris")) should be > 0.9
+      synonyms should contain("wien")
+      similarities(synonyms.indexOf("wien")) should be > 0.9
     } finally {
       model.stop()
     }
