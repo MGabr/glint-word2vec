@@ -2,7 +2,7 @@
 [![Build Status](https://travis-ci.com/MGabr/glint-word2vec.svg)](https://travis-ci.com/MGabr/glint-word2vec)
 
 > Network-efficient distributed Word2Vec for large vocabularies on Spark 
-using customized [Glint](https://github.com/MGabr/glint-word2vec) parameter servers
+using customized [Glint](https://github.com/MGabr/glint) parameter servers
 
 This Word2Vec implementation allows training large vocabularies which do not fit in the memory of a single machine.
 It uses parameter servers to achieve this and custom parameter server operations to perform the training in a
@@ -18,7 +18,7 @@ The asynchronous distributed training is sensitive to very frequent words and ma
 Therefore stop words and other very frequent words without much meaning should be removed beforehand. Use for example
 Sparks [StopWordsRemover](https://spark.apache.org/docs/2.2.0/ml-features.html#stopwordsremover).
 
-Large parts of the actual functionality can be found in the [Glint fork](https://github.com/MGabr/glint-word2vec).
+Large parts of the actual functionality can be found in the [Glint fork](https://github.com/MGabr/glint).
 
 ## Build
 

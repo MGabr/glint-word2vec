@@ -13,7 +13,7 @@ libraryDependencies += "org.apache.spark" %% "spark-mllib" % "2.3.0" % "provided
 // use this instead of the github dependency for easier local development if you are modifying glint
 // libraryDependencies += "com.github.mgabr" %% "glint" % "0.2-SNAPSHOT"
 
-lazy val glint = RootProject(uri("https://github.com/MGabr/glint.git#0.2-word2vec"))
+lazy val glint = RootProject(uri("https://github.com/MGabr/glint.git"))
 
 // Integration tests
 
