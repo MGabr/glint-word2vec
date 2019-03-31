@@ -56,12 +56,10 @@ private case class VocabWordCn(var word: String, var cn: Int)
   * It uses the skip-gram model with mini-batches and negative sampling and
   * performs the training in a network efficient way as presented in
   *
-  * {{{
-  *   Erik Ordentlich, Lee Yang, Andy Feng, Peter Cnudde, Mihajlo Grbovic,
-  *   Nemanja Djuric, Vladan Radosavljevic and Gavin Owens.
-  *   '''"Network-Efficient Distributed Word2vec Training System for Large Vocabularies."'''
-  *   ''In CIKM, 2016, Pages 1139-1148''
-  * }}}
+  * Erik Ordentlich, Lee Yang, Andy Feng, Peter Cnudde, Mihajlo Grbovic,
+  * Nemanja Djuric, Vladan Radosavljevic and Gavin Owens.
+  * '''"Network-Efficient Distributed Word2vec Training System for Large Vocabularies."'''
+  * ''In CIKM, 2016, Pages 1139-1148''
   *
   */
 class ServerSideGlintWord2Vec extends Serializable with Logging {
@@ -504,7 +502,7 @@ class ServerSideGlintWord2VecModel private[spark](private[spark] val wordIndex: 
     *
     * Note that this implementation makes a blocking call to the underlying distributed matrix.
     * In most cases you will want to use the more efficient
-    * [[org.apache.spark.mllib.feature.ServerSideGlintWord2VecModel.transform(words* transform]]
+    * [[org.apache.spark.mllib.feature.ServerSideGlintWord2VecModel.transform(words* transform(words)]]
     * to not block for each word but for a batch of words.
     *
     * @param word a word
@@ -647,10 +645,8 @@ class ServerSideGlintWord2VecModel private[spark](private[spark] val wordIndex: 
     * This can be used if only the training should be performed with a Glint cluster.
     *
     * Note that this implementation pulls the whole distributed matrix to the client and might therefore not work with
-    * large matrices which do not fit into the client's memory.
-    *
-    * Note also that while this implementation can train large models, the word vectors in the default Spark
-    * implementation are limited to 8GB because of the broadcast size limit.
+    * large matrices which do not fit into the client's memory. While this implementation can train large models,
+    * the word vectors in the default Spark implementation are limited to 8GB because of the broadcast size limit.
     */
   def toLocal: Word2VecModel = {
     val vectors = Await.result(matrix.pull((0L until numWords).toArray), 5 minutes)
