@@ -22,7 +22,8 @@ Large parts of the actual functionality can be found in the [Glint fork](https:/
 
 ## Build
 
-To build the project jar run:
+You can either use the [release jar](https://github.com/MGabr/glint-word2vec/releases) or build the project yourself.
+To build it run:
 
     sbt assembly
  
