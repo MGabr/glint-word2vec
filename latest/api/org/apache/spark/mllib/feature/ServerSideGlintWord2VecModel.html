@@ -513,8 +513,8 @@ This model can't be used anymore afterwards.
     </span>
       <p class="shortcomment cmt">Returns a local <span class="extype" name="org.apache.spark.mllib.feature.Word2VecModel">Word2VecModel</span>, the default Spark implementation.</p><div class="fullcomment"><div class="comment cmt"><p>Returns a local <span class="extype" name="org.apache.spark.mllib.feature.Word2VecModel">Word2VecModel</span>, the default Spark implementation.
 This can be used if only the training should be performed with a Glint cluster.</p><p>Note that this implementation pulls the whole distributed matrix to the client and might therefore not work with
-large matrices which do not fit into the client's memory.</p><p>Note also that while this implementation can train large models, the word vectors in the default Spark
-implementation are limited to 8GB because of the broadcast size limit.
+large matrices which do not fit into the client's memory. While this implementation can train large models,
+the word vectors in the default Spark implementation are limited to 8GB because of the broadcast size limit.
 </p></div></div>
     </li><li name="scala.AnyRef#toString" visbl="pub" data-isabs="false" fullComment="yes" group="Ungrouped">
       <a id="toString():String"></a>
@@ -569,7 +569,7 @@ implementation are limited to 8GB because of the broadcast size limit.
     </span>
       <p class="shortcomment cmt">Transforms a word to its vector representation.</p><div class="fullcomment"><div class="comment cmt"><p>Transforms a word to its vector representation.</p><p>Note that this implementation makes a blocking call to the underlying distributed matrix.
 In most cases you will want to use the more efficient
-<a href="#transform(words:Iterator[String]):Iterator[org.apache.spark.mllib.linalg.Vector]" class="extmbr" name="org.apache.spark.mllib.feature.ServerSideGlintWord2VecModel#transform">transform</a>
+<a href="#transform(words:Iterator[String]):Iterator[org.apache.spark.mllib.linalg.Vector]" class="extmbr" name="org.apache.spark.mllib.feature.ServerSideGlintWord2VecModel#transform">transform(words)</a>
 to not block for each word but for a batch of words.
 </p></div><dl class="paramcmts block"><dt class="param">word</dt><dd class="cmt"><p>a word</p></dd><dt>returns</dt><dd class="cmt"><p>vector representation of word</p></dd></dl></div>
     </li><li name="org.apache.spark.mllib.feature.ServerSideGlintWord2VecModel#vectorSize" visbl="pub" data-isabs="false" fullComment="no" group="Ungrouped">
