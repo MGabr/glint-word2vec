@@ -431,7 +431,7 @@ class ServerSideGlintWord2VecModel private[ml](override val uid: String,
       val rowSlidesIter = rowIter.sliding(10000, 10000).withPartial(true)
       val vectors = rowSlidesIter.flatMap { rows =>
         val sentences = rows.toArray.map(_.getAs[Seq[String]]($(inputCol)).toArray)
-        val sentenceIndices = sentences.map(_.flatMap(wordIndex.get).map(_.toLong))
+        val sentenceIndices = sentences.map(_.flatMap(wordIndex.get))
         val averageVecs = Await.result(matrix.pullAverage(sentenceIndices), 1 minute)
         rows.zip(averageVecs).map { case (row, vec) =>
           Row.fromSeq(row.toSeq :+ Vectors.fromBreeze(convert(vec, Double)))
