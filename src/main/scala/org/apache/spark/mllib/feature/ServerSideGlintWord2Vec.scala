@@ -418,11 +418,11 @@ class ServerSideGlintWord2Vec extends Serializable with Logging {
             val sentenceContextMiniBatches = sentenceContext.sliding(batchSize, batchSize)
             val miniBatchFutures = sentenceMiniBatches.zip(sentenceContextMiniBatches).map { case (wInput, wOutput) =>
               val seed = random.nextLong()
-              syn.dotprod(wInput, wOutput, seed).map { case (fPlus, fMinus) =>
+              syn.dotprod(wInput, wOutput, seed).map { case (fPlus, fMinus, cacheKeys) =>
                 lastFPlus = fPlus(0)
                 val gPlus = fPlus.map(f => getSigmoid(expTable, f, 1.0f) * alpha.toFloat)
                 val gMinus = fMinus.map(f => getSigmoid(expTable, f, 0.0f) * alpha.toFloat)
-                syn.adjust(wInput, wOutput, gPlus, gMinus, seed)
+                syn.adjust(gPlus, gMinus, cacheKeys)
               }
             }
             // the map here is important because simply using foreach would start all futures at the same time

@@ -521,7 +521,7 @@ object ServerSideGlintWord2VecModel extends MLReadable[ServerSideGlintWord2VecMo
       val oldModel = MLlibServerSideGlintWord2VecModel.load(
         sparkSession.sparkContext, path, parameterServerHost, parameterServerConfig)
       val model = new ServerSideGlintWord2VecModel(metadata.uid, oldModel)
-      DefaultParamsReader.getAndSetParams(model, metadata)
+      metadata.getAndSetParams(model)
       model.set(model.parameterServerHost, parameterServerHost)
       model.set(model.parameterServerConfig, parameterServerConfig.resolve())
       model

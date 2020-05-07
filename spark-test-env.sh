@@ -19,12 +19,12 @@ create_test_environment() {
   -p 9999:9999 \
   -p 50070:50070 \
   -d \
-  -v /`pwd`/src/it/resources/log4j.properties:/opt/spark-2.3.0-bin-hadoop2.6/conf/log4j.properties \
+  -v /`pwd`/src/it/resources/log4j.properties:/opt/spark-2.4.4-bin-hadoop2.6/conf/log4j.properties \
   -v /`pwd`:`pwd` \
   -it \
   --shm-size=1g \
   --workdir="/`pwd`" \
-  mgabr/sparklet-hdfs:2.3.0 bash
+  mgabr/sparklet-hdfs:2.4.4 bash
   sleep 30
 }
 

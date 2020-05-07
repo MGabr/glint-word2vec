@@ -46,8 +46,8 @@ There are two modes in which Glint-Word2vec can be run.
 You can either start the parameter servers automatically on some executors in the same Spark application
 or start up a parameter server cluster in a separate Spark application beforehand and then specify the
 IP of the parameter server master to use this cluster. The first mode is more convenient but the second
-mode scales better so it is recommended to use a separate parameter server for training and the integrated
-parameter servers when transforming words to vectors.
+mode scales better so it is recommended to use a separate parameter server at least for training and 
+the integrated parameter servers only when transforming words to vectors.
 
 To start parameter servers as separate Spark application run:
 

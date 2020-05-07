@@ -7,8 +7,8 @@ organization := "com.github.mgabr"
 scalaVersion := "2.11.8"
 val scalaMajorMinorVersion = "2.11"
 
-libraryDependencies += "org.apache.spark" %% "spark-core" % "2.3.0" % "provided"
-libraryDependencies += "org.apache.spark" %% "spark-mllib" % "2.3.0" % "provided"
+libraryDependencies += "org.apache.spark" %% "spark-core" % "2.4.0" % "provided"
+libraryDependencies += "org.apache.spark" %% "spark-mllib" % "2.4.0" % "provided"
 
 // use this instead of the github dependency for easier local development if you are modifying glint
 // libraryDependencies += "com.github.mgabr" %% "glint" % "0.2-SNAPSHOT"
