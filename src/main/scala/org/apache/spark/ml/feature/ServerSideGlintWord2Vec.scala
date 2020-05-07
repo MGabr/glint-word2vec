@@ -336,13 +336,31 @@ class ServerSideGlintWord2VecModel private[ml](override val uid: String,
     * Returns a dataframe with two fields, "word" and "vector", with "word" being a String and
     * and the vector the DenseVector that it is mapped to.
     *
-    * Note that this implementation pulls the whole distributed matrix to the client and might therefore not work with
-    * large matrices which do not fit into the client's memory.
+    * Note that the dataframe is created by making blocking calls to the underlying distributed matrix.
+    * The dataframe should therefore be persisted to disk before calling [[stop() stop]].
     */
   @transient lazy val getVectors: DataFrame = {
     val spark = SparkSession.builder().getOrCreate()
-    val wordVec = mllibModel.getVectors.mapValues(vec => Vectors.dense(vec.map(_.toDouble)))
-    spark.createDataFrame(wordVec.toSeq).toDF("word", "vector")
+
+    val matrix = mllibModel.matrix
+
+    val vectors = spark.sparkContext.parallelize(mllibModel.wordIndex.toSeq).mapPartitions { iter =>
+      val iterArr = iter.toArray
+
+      @transient
+      implicit val ec = ExecutionContext.Implicits.global
+
+      val iterVectors = Await.result(matrix.pull(iterArr.map(_._2.toLong)), 5 minutes)
+      iterArr.toIterator.zip(iterVectors.toIterator).map { case ((word, wordIndex), wordVector) =>
+        Row(word, Vectors.fromBreeze(convert(wordVector, Double)))
+      }
+    }
+
+    val wordField = StructField("word", StringType, nullable=false)
+    val vectorField = StructField("vector", new VectorUDT, nullable=false)
+    val schema = StructType(Seq(wordField, vectorField))
+
+    spark.createDataFrame(vectors, schema)
   }
 
   /**
