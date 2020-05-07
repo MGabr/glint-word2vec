@@ -861,8 +861,8 @@ word vector.</p></dd></dl></div>
     </span>
       <p class="shortcomment cmt">Returns a dataframe with two fields, &quot;word&quot; and &quot;vector&quot;, with &quot;word&quot; being a String and
 and the vector the DenseVector that it is mapped to.</p><div class="fullcomment"><div class="comment cmt"><p>Returns a dataframe with two fields, &quot;word&quot; and &quot;vector&quot;, with &quot;word&quot; being a String and
-and the vector the DenseVector that it is mapped to.</p><p>Note that this implementation pulls the whole distributed matrix to the client and might therefore not work with
-large matrices which do not fit into the client's memory.
+and the vector the DenseVector that it is mapped to.</p><p>Note that the dataframe is created by making blocking calls to the underlying distributed matrix.
+The dataframe should therefore be persisted to disk before calling <span class="extype" name="stop()">stop</span>.
 </p></div></div>
     </li><li name="org.apache.spark.ml.feature.ServerSideGlintWord2VecBase#getWindowSize" visbl="pub" data-isabs="false" fullComment="yes" group="expertGetParam">
       <a id="getWindowSize:Int"></a>
